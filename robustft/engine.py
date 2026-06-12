@@ -49,6 +49,21 @@ def stratified_split(labels: torch.Tensor, val_frac: float, seed: int) -> tuple[
     return torch.from_numpy(train_idx).long(), torch.from_numpy(val_idx).long()
 
 
+def stratified_three_way_split(
+    labels: torch.Tensor, val_frac: float, holdout_frac: float, seed: int,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Stratified train/val/holdout split (val_frac=holdout_frac=0.1 -> 8:1:1).
+
+    The holdout partition is carved out first and must stay untouched by every
+    label-driven step including checkpoint selection; val is then split from
+    the remainder so its overall fraction still equals val_frac.
+    """
+    trainval_idx, holdout_idx = stratified_split(labels, holdout_frac, seed)
+    rel_frac = val_frac / (1.0 - holdout_frac)
+    tr_rel, va_rel = stratified_split(labels[trainval_idx], rel_frac, seed + 1)
+    return trainval_idx[tr_rel], trainval_idx[va_rel], holdout_idx
+
+
 def soft_ce(logits: torch.Tensor, target_probs: torch.Tensor, sample_w: torch.Tensor | None = None) -> torch.Tensor:
     loss = -(target_probs * logits.log_softmax(dim=1)).sum(1)
     if sample_w is not None:

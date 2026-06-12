@@ -1,0 +1,56 @@
+kNN filter keeps 69694/103218 (67.52%)
+targets ready: 69738 usable samples (44 consensus pseudo-labelled)
+train images 69738  val images 10285
+trainable params: 1.27M
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+D:\04_Tools\Python\Lib\site-packages\PIL\TiffImagePlugin.py:949: UserWarning: Corrupt EXIF data.  Expecting to read 4 bytes but only got 2. 
+  warnings.warn(str(msg))
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+epoch 01/15 loss=1.7207 time=253s  noisy_all=0.6438  low_lt03=0.2934  mid_03_06=0.7886  high_ge06=0.9834  *best*
+D:\04_Tools\Python\Lib\site-packages\PIL\TiffImagePlugin.py:949: UserWarning: Corrupt EXIF data.  Expecting to read 4 bytes but only got 2. 
+  warnings.warn(str(msg))
+epoch 02/15 loss=1.5091 time=253s  noisy_all=0.6767  low_lt03=0.3396  mid_03_06=0.8324  high_ge06=0.9903  *best*
+epoch 03/15 loss=1.3904 time=254s  noisy_all=0.689  low_lt03=0.3647  mid_03_06=0.8421  high_ge06=0.9879  *best*
+D:\04_Tools\Python\Lib\site-packages\PIL\TiffImagePlugin.py:949: UserWarning: Corrupt EXIF data.  Expecting to read 4 bytes but only got 2. 
+  warnings.warn(str(msg))
+kNN filter keeps 69694/103218 (67.52%)
+targets ready: 69738 usable samples (44 consensus pseudo-labelled)
+train images 69738  val images 10285
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+trainable params: 1.27M
+resuming outputs/lora/last.pt from epoch 4
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+D:\04_Tools\Python\Lib\site-packages\PIL\TiffImagePlugin.py:949: UserWarning: Corrupt EXIF data.  Expecting to read 4 bytes but only got 2. 
+  warnings.warn(str(msg))
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+epoch 04/15 loss=1.3096 time=281s  noisy_all=0.7033  low_lt03=0.3865  mid_03_06=0.862  high_ge06=0.9879  *best*
+D:\04_Tools\Python\Lib\site-packages\PIL\TiffImagePlugin.py:949: UserWarning: Corrupt EXIF data.  Expecting to read 4 bytes but only got 2. 
+  warnings.warn(str(msg))
+epoch 05/15 loss=1.2404 time=233s  noisy_all=0.7035  low_lt03=0.3907  mid_03_06=0.8571  high_ge06=0.9873
+epoch 06/15 loss=1.1934 time=230s  noisy_all=0.7098  low_lt03=0.3976  mid_03_06=0.8646  high_ge06=0.9915  *best*
+D:\04_Tools\Python\Lib\site-packages\PIL\TiffImagePlugin.py:949: UserWarning: Corrupt EXIF data.  Expecting to read 4 bytes but only got 2. 
+  warnings.warn(str(msg))
+epoch 07/15 loss=1.1858 time=228s  noisy_all=0.7123  low_lt03=0.4018  mid_03_06=0.8676  high_ge06=0.9915  *best*
+D:\04_Tools\Python\Lib\site-packages\PIL\TiffImagePlugin.py:949: UserWarning: Corrupt EXIF data.  Expecting to read 4 bytes but only got 2. 
+  warnings.warn(str(msg))
+epoch 08/15 loss=1.1581 time=235s  noisy_all=0.7114  low_lt03=0.3997  mid_03_06=0.8676  high_ge06=0.9915
+epoch 09/15 loss=1.1359 time=231s  noisy_all=0.7126  low_lt03=0.403  mid_03_06=0.8668  high_ge06=0.9915
+epoch 10/15 loss=1.1181 time=229s  noisy_all=0.7169  low_lt03=0.4097  mid_03_06=0.8747  high_ge06=0.9897  *best*
+epoch 11/15 loss=1.1048 time=226s  noisy_all=0.7161  low_lt03=0.409  mid_03_06=0.8713  high_ge06=0.9909
+epoch 12/15 loss=1.0948 time=232s  noisy_all=0.7172  low_lt03=0.4085  mid_03_06=0.8762  high_ge06=0.9909  *best*
+epoch 13/15 loss=1.0879 time=231s  noisy_all=0.7186  low_lt03=0.4116  mid_03_06=0.8773  high_ge06=0.9906  *best*
+epoch 14/15 loss=1.0839 time=229s  noisy_all=0.718  low_lt03=0.4104  mid_03_06=0.8769  high_ge06=0.9906
+epoch 15/15 loss=1.0815 time=229s  noisy_all=0.718  low_lt03=0.4097  mid_03_06=0.878  high_ge06=0.9906  *best*
+done

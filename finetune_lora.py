@@ -14,6 +14,8 @@ Pipeline (fully scripted, reproducible, strict validation):
      policy (best / last / full).
 
 Run:  python finetune_lora.py --epochs 15          (train, 90/10 split)
+      python finetune_lora.py --epochs 15 --holdout-frac 0.1
+                                                   (8:1:1; final unbiased holdout report)
       python finetune_lora.py --full --epochs 15   (train on 100% -> full.pt)
       python finetune_lora.py --predict --checkpoint full
       python finetune_lora.py --smoke --work-dir outputs_tmp --cache-dir outputs/cache
@@ -35,7 +37,13 @@ from torchvision.datasets import ImageFolder
 import config
 from robustft.data import IndexedImageDataset, build_finetune_transforms
 from robustft.denoise import knn_agreement, knn_majority_prediction, per_class_topk_keep
-from robustft.engine import seed_everything, stratified_split, teacher_stats, train_head
+from robustft.engine import (
+    seed_everything,
+    stratified_split,
+    stratified_three_way_split,
+    teacher_stats,
+    train_head,
+)
 from robustft.models import MODEL_NAME, build_lora_model
 from robustft.robust_utils import choose_checkpoint, validate_disjoint_split
 from robustft.submission import save_predictions, zip_submission
@@ -135,18 +143,24 @@ def train(args) -> None:
 
     cache = torch.load(Path(args.cache_dir) / "train_features.pt", map_location="cpu")
     labels = cache["labels"]
+    ho_idx = torch.arange(0)
     if args.full:
         tr_idx = torch.arange(labels.numel())
         va_idx = torch.arange(0)
+    elif args.holdout_frac > 0:
+        tr_idx, va_idx, ho_idx = stratified_three_way_split(
+            labels, args.val_frac, args.holdout_frac, args.seed)
     else:
         tr_idx, va_idx = stratified_split(labels, args.val_frac, args.seed)
     if args.smoke:
         generator = torch.Generator().manual_seed(args.seed)
         tr_idx = tr_idx[torch.randperm(tr_idx.numel(), generator=generator)[:5000]].sort().values
         va_idx = va_idx[torch.randperm(va_idx.numel(), generator=generator)[:2000]].sort().values if va_idx.numel() else va_idx
+        ho_idx = ho_idx[torch.randperm(ho_idx.numel(), generator=generator)[:1000]].sort().values if ho_idx.numel() else ho_idx
         args.epochs = 2
 
-    prep = prepare_targets(args, device, tr_idx, va_idx)
+    # holdout samples are query-only, exactly like val: never in gallery/teacher
+    prep = prepare_targets(args, device, tr_idx, torch.cat([va_idx, ho_idx]))
     class_names = prep["class_names"]
     num_classes = len(class_names)
     target_labels_all = prep["target_labels"].to(device)
@@ -208,7 +222,7 @@ def train(args) -> None:
             "model": model.state_dict(), "class_names": class_names,
             "epoch": epoch, "bands": bands, "args": vars(args),
             "target_stats": prep["target_stats"],
-            "train_idx": tr_idx, "val_idx": va_idx,
+            "train_idx": tr_idx, "val_idx": va_idx, "holdout_idx": ho_idx,
             "model_name": MODEL_NAME, "single_model": True,
             "optimizer": opt.state_dict(), "scheduler": sched.state_dict(),
             "scaler": scaler.state_dict(),
@@ -263,6 +277,24 @@ def train(args) -> None:
         if val_loader is not None and args.early_stop_patience > 0 and stale_epochs >= args.early_stop_patience:
             print(f"early stopping after {stale_epochs} stale epochs")
             break
+
+    if ho_idx.numel():
+        # free the persistent train/val worker processes before spawning new ones
+        del train_loader, val_loader
+        ckpt = torch.load(ckpt_dir / "best.pt", map_location=device)
+        model.load_state_dict(ckpt["model"])
+        ho_ds = IndexedImageDataset([paths[i] for i in ho_idx.tolist()], eval_tf)
+        ho_loader = DataLoader(ho_ds, batch_size=args.batch_size * 2, shuffle=False,
+                               num_workers=2, pin_memory=True)
+        ho_labels = labels_all[ho_idx.to(device)]
+        ho_agree = agree_all[ho_idx.to(device)]
+        bands = evaluate_images(model, ho_loader, ho_labels, ho_agree, device)
+        print(f"holdout eval (untouched {args.holdout_frac:.0%}, best epoch {ckpt.get('epoch')}): "
+              + "  ".join(f"{k}={v}" for k, v in bands.items()), flush=True)
+        history.append({"holdout_best_epoch": ckpt.get("epoch"),
+                        **{f"holdout_{k}": v for k, v in bands.items()}})
+        with (ckpt_dir / "history.json").open("w", encoding="utf-8") as fp:
+            json.dump(history, fp, indent=2)
     print("done")
 
 
@@ -313,6 +345,9 @@ def parse_args():
     p.add_argument("--output-csv", default=str(config.DEFAULT_LORA_OUTPUT_CSV))
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--val-frac", type=float, default=0.1)
+    p.add_argument("--holdout-frac", type=float, default=0.0,
+                   help="carve out an untouched stratified test partition before val "
+                        "(0.1 -> 8:1:1 split with an unbiased final report)")
     p.add_argument("--epochs", type=int, default=10)
     p.add_argument("--batch-size", type=int, default=192)
     p.add_argument("--num-workers", type=int, default=4)

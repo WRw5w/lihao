@@ -8,5 +8,6 @@
 **/outputs/lora/*.pt
 *.pth
 outputs_tmp/
+outputs_*/
 archive/do/
 archive/*.zip
