@@ -6,6 +6,7 @@
 **/.ipynb_checkpoints/
 *.pt
 **/outputs/lora/*.pt
+outputs/**/*.log
 *.pth
 outputs_tmp/
 outputs_*/

@@ -1,7 +1,0 @@
-Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
-loaded D:\02_Projects\ML\jinyinsai\outputs\lora\full.pt (epoch 15)
-saved D:\02_Projects\ML\jinyinsai\submissions\pred_results_lora.csv and D:\02_Projects\ML\jinyinsai\submissions\pred_results_lora.zip (24967 predictions)
-OK   zip contains exactly pred_results.csv
-OK   all 24967 class ids are 4-digit and within 0000..0499
-OK   filenames exactly match test dir (24967 files)
-RESULT: PASS
