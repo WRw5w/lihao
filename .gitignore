@@ -1,0 +1,9 @@
+**/train/
+**/test/
+**/train.zip
+**/test.zip
+**/__pycache__/
+**/.ipynb_checkpoints/
+*.pt
+**/outputs/lora/*.pt
+*.pth
