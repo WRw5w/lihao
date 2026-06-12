@@ -99,6 +99,12 @@ def main() -> None:
         idx_keep = torch.nonzero(keep, as_tuple=False).squeeze(1)
         teacher = train_head(ftr, ytr, num_classes, idx_keep, smoothing=0.1, **common)
         record(f"knn{int(keep_ratio * 100)}_teacher", teacher, {"kept": int(idx_keep.numel())})
+        seed_everything(SEED)
+        control = train_head(
+            ftr, ytr, num_classes, idx_keep, smoothing=0.1,
+            init_state=teacher.state_dict(), **common)
+        record(f"knn{int(keep_ratio * 100)}_continue_control", control,
+               {"kept": int(idx_keep.numel()), "pseudo": 0})
         self_train(keep, teacher, pseudo_thresh=0.7, rounds=1, tag=f"knn{int(keep_ratio * 100)}_soft")
 
     # fused score (agreement + model confidence), keep 0.6
