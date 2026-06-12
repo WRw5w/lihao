@@ -24,6 +24,7 @@ Run:  python finetune_lora.py --epochs 15          (train, 90/10 split)
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import time
 from pathlib import Path
@@ -178,10 +179,17 @@ def train(args) -> None:
     print(f"train images {tr_idx.numel()}  val images {va_idx.numel()}")
 
     model = build_lora_model(num_classes, args.lora_rank, args.lora_alpha, args.lora_dropout,
-                             prep["teacher_head_state"], device, lora_blocks=args.lora_blocks)
-    train_tf, eval_tf = build_finetune_transforms(model.backbone, args.crop_min_scale)
+                             prep["teacher_head_state"], device, lora_blocks=args.lora_blocks,
+                             lora_target=args.lora_target, img_size=args.img_size)
+    train_tf, eval_tf = build_finetune_transforms(model.backbone, args.crop_min_scale,
+                                                  img_size=args.img_size, randaug=args.randaug)
     n_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"trainable params: {n_trainable / 1e6:.2f}M")
+    ema_model = None
+    if args.ema_decay > 0:
+        ema_model = copy.deepcopy(model)
+        for p in ema_model.parameters():
+            p.requires_grad_(False)
 
     train_ds = IndexedImageDataset([paths[i] for i in tr_idx.tolist()], train_tf)
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True,
@@ -210,7 +218,9 @@ def train(args) -> None:
     start_epoch = 1
     if args.resume:
         resume = torch.load(Path(args.resume), map_location=device)
-        model.load_state_dict(resume["model"])
+        model.load_state_dict(resume.get("raw_model", resume["model"]))
+        if ema_model is not None:
+            ema_model.load_state_dict(resume["model"])
         opt.load_state_dict(resume["optimizer"])
         sched.load_state_dict(resume["scheduler"])
         scaler.load_state_dict(resume["scaler"])
@@ -218,8 +228,11 @@ def train(args) -> None:
         print(f"resuming {args.resume} from epoch {start_epoch}")
 
     def checkpoint_payload(epoch: int, bands: dict | None = None) -> dict:
+        eval_model = ema_model if ema_model is not None else model
+        payload_extra = {"raw_model": model.state_dict()} if ema_model is not None else {}
         return {
-            "model": model.state_dict(), "class_names": class_names,
+            "model": eval_model.state_dict(), "class_names": class_names,
+            **payload_extra,
             "epoch": epoch, "bands": bands, "args": vars(args),
             "target_stats": prep["target_stats"],
             "train_idx": tr_idx, "val_idx": va_idx, "holdout_idx": ho_idx,
@@ -254,12 +267,18 @@ def train(args) -> None:
             scaler.step(opt)
             scaler.update()
             sched.step()
+            if ema_model is not None:
+                with torch.no_grad():
+                    for pe, pm in zip(ema_model.parameters(), model.parameters()):
+                        if pm.requires_grad:
+                            pe.mul_(args.ema_decay).add_(pm, alpha=1.0 - args.ema_decay)
             tot_loss += loss.item() * images.size(0)
             tot_seen += images.size(0)
         msg = f"epoch {epoch:02d}/{args.epochs} loss={tot_loss / max(1, tot_seen):.4f} time={time.time() - t0:.0f}s"
         entry = {"epoch": epoch, "loss": round(tot_loss / max(1, tot_seen), 4)}
         if val_loader is not None:
-            bands = evaluate_images(model, val_loader, va_labels, va_agree, device)
+            bands = evaluate_images(ema_model if ema_model is not None else model,
+                                    val_loader, va_labels, va_agree, device)
             entry.update(bands)
             msg += "  " + "  ".join(f"{k}={v}" for k, v in bands.items())
             if bands["mid_03_06"] > best_mid:
@@ -307,12 +326,15 @@ def predict(args) -> None:
     targs = ckpt.get("args", {})
     model = build_lora_model(len(class_names), targs.get("lora_rank", args.lora_rank),
                              targs.get("lora_alpha", args.lora_alpha), 0.0, None, device,
-                             lora_blocks=targs.get("lora_blocks", args.lora_blocks))
+                             lora_blocks=targs.get("lora_blocks", args.lora_blocks),
+                             lora_target=targs.get("lora_target", args.lora_target),
+                             img_size=targs.get("img_size", args.img_size))
     model.load_state_dict(ckpt["model"])
     model.eval()
     print(f"loaded {ckpt_path} (epoch {ckpt.get('epoch')})")
 
-    _, eval_tf = build_finetune_transforms(model.backbone, targs.get("crop_min_scale", args.crop_min_scale))
+    _, eval_tf = build_finetune_transforms(model.backbone, targs.get("crop_min_scale", args.crop_min_scale),
+                                           img_size=targs.get("img_size", args.img_size))
     test_dir = Path(args.test_dir)
     paths = sorted(str(p) for p in test_dir.iterdir()
                    if p.is_file() and p.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp", ".webp"})
@@ -366,6 +388,14 @@ def parse_args():
     p.add_argument("--lora-alpha", type=float, default=32.0)
     p.add_argument("--lora-dropout", type=float, default=0.05)
     p.add_argument("--lora-blocks", type=int, default=12, choices=(4, 6, 12))
+    p.add_argument("--lora-target", choices=("attn", "attn_mlp"), default="attn",
+                   help="attn_mlp also adapts mlp fc1/fc2 (~3x trainable params)")
+    p.add_argument("--img-size", type=int, default=224,
+                   help="input resolution; >224 resamples CLIP pos-embeds (e.g. 448 -> 196 patch tokens)")
+    p.add_argument("--ema-decay", type=float, default=0.0,
+                   help="EMA of trainable weights for eval/checkpoints (try 0.999)")
+    p.add_argument("--randaug", action="store_true",
+                   help="RandAugment(2, 7) instead of ColorJitter")
     p.add_argument("--crop-min-scale", type=float, default=0.8)
     p.add_argument("--lora-lr", type=float, default=2e-4)
     p.add_argument("--head-lr", type=float, default=1e-3)

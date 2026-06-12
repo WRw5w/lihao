@@ -46,7 +46,9 @@ class LoRALinear(nn.Module):
         return out
 
 
-def inject_lora(model: nn.Module, rank: int, alpha: float, dropout: float, last_blocks: int = 12) -> list[str]:
+def inject_lora(model: nn.Module, rank: int, alpha: float, dropout: float, last_blocks: int = 12,
+                target: str = "attn") -> list[str]:
+    """target: "attn" adapts qkv/proj only; "attn_mlp" also adapts mlp fc1/fc2."""
     replaced = []
     first_block = max(0, len(model.blocks) - last_blocks)
     for blk_i, blk in enumerate(model.blocks):
@@ -56,6 +58,10 @@ def inject_lora(model: nn.Module, rank: int, alpha: float, dropout: float, last_
         attn.qkv = LoRALinear(attn.qkv, rank, alpha, dropout)
         attn.proj = LoRALinear(attn.proj, rank, alpha, dropout)
         replaced += [f"blocks.{blk_i}.attn.qkv", f"blocks.{blk_i}.attn.proj"]
+        if target == "attn_mlp":
+            blk.mlp.fc1 = LoRALinear(blk.mlp.fc1, rank, alpha, dropout)
+            blk.mlp.fc2 = LoRALinear(blk.mlp.fc2, rank, alpha, dropout)
+            replaced += [f"blocks.{blk_i}.mlp.fc1", f"blocks.{blk_i}.mlp.fc2"]
     return replaced
 
 
@@ -83,11 +89,14 @@ def build_frozen_backbone(device: torch.device) -> nn.Module:
 
 def build_lora_model(num_classes: int, rank: int, alpha: float, lora_dropout: float,
                      head_state: dict | None, device: torch.device,
-                     lora_blocks: int = 12) -> LoraClassifier:
-    backbone = timm.create_model(MODEL_NAME, pretrained=True, num_classes=0)
+                     lora_blocks: int = 12, lora_target: str = "attn",
+                     img_size: int = 224) -> LoraClassifier:
+    # img_size != 224 makes timm resample the CLIP position embeddings; the
+    # pretrained weights themselves are unchanged (competition-compliant).
+    backbone = timm.create_model(MODEL_NAME, pretrained=True, num_classes=0, img_size=img_size)
     for p in backbone.parameters():
         p.requires_grad_(False)
-    inject_lora(backbone, rank, alpha, lora_dropout, last_blocks=lora_blocks)
+    inject_lora(backbone, rank, alpha, lora_dropout, last_blocks=lora_blocks, target=lora_target)
     head = CosineClassifier(backbone.num_features, num_classes, dropout=0.0)
     if head_state is not None:
         head.load_state_dict(head_state)

@@ -109,20 +109,26 @@ def build_extract_transform(model: nn.Module):
     )
 
 
-def build_finetune_transforms(model: nn.Module, crop_min_scale: float = 0.8):
+def build_finetune_transforms(model: nn.Module, crop_min_scale: float = 0.8,
+                              img_size: int = 224, randaug: bool = False):
     """(train, eval) transform pair used for LoRA fine-tuning."""
     cfg = resolve_data_config(model=model)
     mean, std = cfg["mean"], cfg["std"]
-    train_tf = transforms.Compose([
-        transforms.RandomResizedCrop(224, scale=(crop_min_scale, 1.0), interpolation=transforms.InterpolationMode.BICUBIC),
+    aug = [
+        transforms.RandomResizedCrop(img_size, scale=(crop_min_scale, 1.0), interpolation=transforms.InterpolationMode.BICUBIC),
         transforms.RandomHorizontalFlip(),
-        transforms.ColorJitter(0.2, 0.2, 0.1),
+    ]
+    if randaug:
+        aug.append(transforms.RandAugment(num_ops=2, magnitude=7))
+    else:
+        aug.append(transforms.ColorJitter(0.2, 0.2, 0.1))
+    train_tf = transforms.Compose(aug + [
         transforms.ToTensor(),
         transforms.Normalize(mean, std),
     ])
     eval_tf = transforms.Compose([
-        transforms.Resize(224, interpolation=transforms.InterpolationMode.BICUBIC),
-        transforms.CenterCrop(224),
+        transforms.Resize(img_size, interpolation=transforms.InterpolationMode.BICUBIC),
+        transforms.CenterCrop(img_size),
         transforms.ToTensor(),
         transforms.Normalize(mean, std),
     ])
