@@ -4,6 +4,7 @@ import argparse
 import contextlib
 import csv
 import json
+import config
 import math
 import random
 import zipfile
@@ -516,10 +517,10 @@ def run_pipeline(args: argparse.Namespace) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="CLIP ViT-B/32 baseline for the preliminary round")
-    parser.add_argument("--train-dir", default="train")
-    parser.add_argument("--test-dir", default="test")
-    parser.add_argument("--work-dir", default="outputs")
-    parser.add_argument("--output-csv", default=DEFAULT_OUTPUT_NAME)
+    parser.add_argument("--train-dir", default=str(config.TRAIN_DIR))
+    parser.add_argument("--test-dir", default=str(config.TEST_DIR))
+    parser.add_argument("--work-dir", default=str(config.DEFAULT_WORK_DIR))
+    parser.add_argument("--output-csv", default=str(config.DEFAULT_OUTPUT_CSV))
     parser.add_argument("--device", default=None)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--num-workers", type=int, default=4)

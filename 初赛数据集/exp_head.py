@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import config
 import math
 import time
 import zipfile
@@ -449,8 +450,8 @@ def run_final(args: argparse.Namespace) -> None:
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
-    p.add_argument("--work-dir", default="outputs")
-    p.add_argument("--output-csv", default="pred_results.csv")
+    p.add_argument("--work-dir", default=str(config.DEFAULT_WORK_DIR))
+    p.add_argument("--output-csv", default=str(config.DEFAULT_OUTPUT_CSV))
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--val-frac", type=float, default=0.1)
     p.add_argument("--epochs", type=int, default=15)

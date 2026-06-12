@@ -15,12 +15,14 @@ import sys
 import zipfile
 from pathlib import Path
 
+import config
+
 
 def main() -> int:
     p = argparse.ArgumentParser()
-    p.add_argument("--csv", default="pred_results.csv")
-    p.add_argument("--zip", default="pred_results.zip")
-    p.add_argument("--test-dir", default="test")
+    p.add_argument("--csv", default=str(config.DEFAULT_OUTPUT_CSV))
+    p.add_argument("--zip", default=str(config.DEFAULT_OUTPUT_ZIP))
+    p.add_argument("--test-dir", default=str(config.TEST_DIR))
     p.add_argument("--num-classes", type=int, default=500)
     args = p.parse_args()
 

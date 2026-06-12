@@ -16,6 +16,8 @@ from pathlib import Path
 
 import torch
 
+import config
+
 from exp_head import (
     CosineClassifier,
     evaluate,
@@ -33,7 +35,7 @@ VAL_FRAC = 0.1
 KNN_K = 16
 EPOCHS = 20
 BATCH = 8192
-WORK = Path("outputs")
+WORK = config.DEFAULT_WORK_DIR
 
 
 def banded_eval(model: CosineClassifier, fva, yva, agree_va) -> dict:

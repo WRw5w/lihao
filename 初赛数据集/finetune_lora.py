@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import config
 import math
 import time
 import zipfile
@@ -372,9 +373,9 @@ def predict(args) -> None:
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--train-dir", default="train")
-    p.add_argument("--test-dir", default="test")
-    p.add_argument("--work-dir", default="outputs")
+    p.add_argument("--train-dir", default=str(config.TRAIN_DIR))
+    p.add_argument("--test-dir", default=str(config.TEST_DIR))
+    p.add_argument("--work-dir", default=str(config.DEFAULT_WORK_DIR))
     p.add_argument("--output-csv", default="pred_results_lora.csv")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--val-frac", type=float, default=0.1)
