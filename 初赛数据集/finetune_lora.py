@@ -6,10 +6,10 @@ Pipeline (fully scripted, reproducible):
   2. Train a frozen-feature teacher head, pseudo-label the dropped samples.
   3. Inject LoRA (rank r) into every attention qkv/proj Linear of the ViT;
      train LoRA + cosine head (warm-started from the teacher) on images with
-     augmentation, soft targets and sample weights.
+     augmentation, compact smoothed-label targets and sample weights.
   4. Evaluate per epoch on a stratified noisy val split (banded metrics).
-  5. Save checkpoints; --predict generates pred_results_lora.csv from the best
-     checkpoint.
+  5. Save resumable checkpoints; --predict requires an explicit checkpoint
+     policy.
 
 Run:  python finetune_lora.py            (train, 90/10 split)
       python finetune_lora.py --full     (train on 100% of the data)
@@ -42,13 +42,12 @@ from torchvision.datasets import ImageFolder
 from exp_head import (
     CosineClassifier,
     knn_agreement,
-    make_soft_targets_with_pseudo,
     per_class_topk_keep,
-    per_sample_stats,
     seed_everything,
     stratified_split,
     train_head,
 )
+from robust_utils import choose_checkpoint, validate_disjoint_split
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 MODEL_NAME = "vit_base_patch32_clip_224.openai"
@@ -75,9 +74,12 @@ class LoRALinear(nn.Module):
         return out
 
 
-def inject_lora(model: nn.Module, rank: int, alpha: float, dropout: float) -> list[str]:
+def inject_lora(model: nn.Module, rank: int, alpha: float, dropout: float, last_blocks: int = 12) -> list[str]:
     replaced = []
+    first_block = max(0, len(model.blocks) - last_blocks)
     for blk_i, blk in enumerate(model.blocks):
+        if blk_i < first_block:
+            continue
         attn = blk.attn
         attn.qkv = LoRALinear(attn.qkv, rank, alpha, dropout)
         attn.proj = LoRALinear(attn.proj, rank, alpha, dropout)
@@ -89,7 +91,7 @@ def inject_lora(model: nn.Module, rank: int, alpha: float, dropout: float) -> li
 
 
 class TrainImageDataset(Dataset):
-    """Returns (augmented image, soft target vector index, sample weight)."""
+    """Returns an augmented image and its local dataset index."""
 
     def __init__(self, paths: list[str], transform):
         self.paths = paths
@@ -118,11 +120,11 @@ class EvalImageDataset(Dataset):
         return self.transform(img), idx
 
 
-def build_transforms(model: nn.Module):
+def build_transforms(model: nn.Module, crop_min_scale: float = 0.8):
     cfg = resolve_data_config(model=model)
     mean, std = cfg["mean"], cfg["std"]
     train_tf = transforms.Compose([
-        transforms.RandomResizedCrop(224, scale=(0.65, 1.0), interpolation=transforms.InterpolationMode.BICUBIC),
+        transforms.RandomResizedCrop(224, scale=(crop_min_scale, 1.0), interpolation=transforms.InterpolationMode.BICUBIC),
         transforms.RandomHorizontalFlip(),
         transforms.ColorJitter(0.2, 0.2, 0.1),
         transforms.ToTensor(),
@@ -153,11 +155,11 @@ class LoraClassifier(nn.Module):
 
 
 def build_model(num_classes: int, rank: int, alpha: float, lora_dropout: float,
-                head_state: dict | None, device: torch.device) -> LoraClassifier:
+                head_state: dict | None, device: torch.device, lora_blocks: int = 12) -> LoraClassifier:
     backbone = timm.create_model(MODEL_NAME, pretrained=True, num_classes=0)
     for p in backbone.parameters():
         p.requires_grad_(False)
-    inject_lora(backbone, rank, alpha, lora_dropout)
+    inject_lora(backbone, rank, alpha, lora_dropout, last_blocks=lora_blocks)
     head = CosineClassifier(backbone.num_features, num_classes, dropout=0.0)
     if head_state is not None:
         head.load_state_dict(head_state)
@@ -168,8 +170,50 @@ def build_model(num_classes: int, rank: int, alpha: float, lora_dropout: float,
 # ------------------------------------------------------------------ pipeline
 
 
-def prepare_targets(args, device) -> dict:
-    """Frozen-feature stage: kNN keep mask + teacher + soft targets/weights.
+@torch.inference_mode()
+def knn_majority_prediction(
+    query: torch.Tensor,
+    gallery: torch.Tensor,
+    gallery_labels: torch.Tensor,
+    k: int,
+    num_classes: int,
+    *,
+    exclude_self: bool,
+    chunk: int = 2048,
+) -> torch.Tensor:
+    predictions = torch.empty(query.size(0), dtype=torch.long, device=query.device)
+    gallery_t = gallery.t().contiguous()
+    for start in range(0, query.size(0), chunk):
+        end = min(start + chunk, query.size(0))
+        sim = query[start:end] @ gallery_t
+        if exclude_self:
+            rows = torch.arange(start, end, device=sim.device)
+            sim[torch.arange(end - start, device=sim.device), rows] = -2.0
+        topv, topi = sim.topk(k, dim=1)
+        votes = torch.zeros((end - start, num_classes), device=sim.device)
+        votes.scatter_add_(1, gallery_labels[topi], topv.float().clamp_min(0))
+        predictions[start:end] = votes.argmax(1)
+    return predictions
+
+
+@torch.inference_mode()
+def teacher_stats(model, features: torch.Tensor, labels: torch.Tensor, batch: int = 16384):
+    model.eval()
+    p_label, preds, pmax, margins = [], [], [], []
+    for start in range(0, features.size(0), batch):
+        logits = model(features[start : start + batch])
+        probs = logits.softmax(1)
+        top2 = probs.topk(2, dim=1)
+        yb = labels[start : start + batch]
+        p_label.append(probs.gather(1, yb[:, None]).squeeze(1))
+        preds.append(top2.indices[:, 0])
+        pmax.append(top2.values[:, 0])
+        margins.append(top2.values[:, 0] - top2.values[:, 1])
+    return tuple(torch.cat(x) for x in (p_label, preds, pmax, margins))
+
+
+def prepare_targets(args, device, train_idx: torch.Tensor, val_idx: torch.Tensor) -> dict:
+    """Frozen-feature stage: kNN keep mask + teacher + compact targets/weights.
 
     Returns everything index-aligned with ImageFolder ordering.
     """
@@ -178,29 +222,62 @@ def prepare_targets(args, device) -> dict:
     feats, labels, class_names = cache["features"], cache["labels"], cache["class_names"]
     image_names = cache["image_names"]
     num_classes = len(class_names)
+    validate_disjoint_split(train_idx.tolist(), val_idx.tolist())
     f16 = feats.to(device)
     f32 = feats.to(device, dtype=torch.float32)
     y = labels.to(device)
+    tr = train_idx.to(device)
+    va = val_idx.to(device)
+    ftr, ytr = f16[tr], y[tr]
 
     seed_everything(args.seed)
-    agree = knn_agreement(f16, y, f16, y, k=args.knn_k, exclude_self=True).to(device)
-    keep = per_class_topk_keep(agree, y, num_classes, keep_ratio=args.keep_ratio)
-    keep |= agree >= 0.7
+    agree = torch.zeros(y.numel(), dtype=torch.float32, device=device)
+    agree[tr] = knn_agreement(ftr, ytr, ftr, ytr, k=args.knn_k, exclude_self=True).to(device)
+    if va.numel():
+        agree[va] = knn_agreement(f16[va], y[va], ftr, ytr, k=args.knn_k, exclude_self=False).to(device)
+    keep = torch.zeros_like(y, dtype=torch.bool)
+    keep_tr = per_class_topk_keep(agree[tr], ytr, num_classes, keep_ratio=args.keep_ratio)
+    keep_tr |= agree[tr] >= args.high_agreement_floor
+    keep[tr] = keep_tr
     idx_keep = torch.nonzero(keep, as_tuple=False).squeeze(1)
     print(f"kNN filter keeps {idx_keep.numel()}/{y.numel()} ({idx_keep.numel() / y.numel():.2%})")
 
-    teacher = train_head(f32, y, num_classes, idx_keep, smoothing=0.1, epochs=20,
+    teacher = train_head(f32, y, num_classes, idx_keep, smoothing=0.1, epochs=args.teacher_epochs,
                          batch_size=8192, device=device)
-    _, _, preds_t, pmax_t = per_sample_stats(teacher, f32, y)
-    targets, weights, _ = make_soft_targets_with_pseudo(
-        y, keep, preds_t, pmax_t, num_classes, smoothing=0.1, pseudo_thresh=args.pseudo_thresh)
+    p_label, preds_t, pmax_t, margins_t = teacher_stats(teacher, f32, y)
+    knn_preds_tr = knn_majority_prediction(
+        ftr, ftr, ytr, args.knn_k, num_classes, exclude_self=True)
+
+    target_labels = y.clone()
+    weights = torch.zeros(y.numel(), dtype=torch.float32, device=device)
+    reliability = (
+        agree[tr].clamp(0, 1).pow(args.agreement_power)
+        * p_label[tr].clamp(0, 1).pow(args.confidence_power)
+        * margins_t[tr].clamp(0, 1).pow(args.margin_power)
+    )
+    weights[tr[keep_tr]] = args.min_sample_weight + (1.0 - args.min_sample_weight) * reliability[keep_tr]
+    pseudo_tr = (
+        (~keep_tr)
+        & (preds_t[tr] == knn_preds_tr)
+        & (pmax_t[tr] >= args.pseudo_thresh)
+        & (margins_t[tr] >= args.pseudo_margin)
+    )
+    if pseudo_tr.any():
+        pseudo_idx = tr[pseudo_tr]
+        target_labels[pseudo_idx] = preds_t[pseudo_idx]
+        weights[pseudo_idx] = pmax_t[pseudo_idx] * margins_t[pseudo_idx].sqrt()
+    pseudo_count = int(pseudo_tr.sum())
     print(f"targets ready: {int((weights > 0).sum())} usable samples "
-          f"({int(((weights > 0) & ~keep).sum())} pseudo-labelled)")
+          f"({pseudo_count} consensus pseudo-labelled)")
     return {
-        "targets": targets.cpu(), "weights": weights.cpu(), "labels": labels,
+        "target_labels": target_labels.cpu(), "weights": weights.cpu(), "labels": labels,
         "class_names": class_names, "image_names": image_names,
         "teacher_head_state": {k: v.cpu() for k, v in teacher.state_dict().items()},
         "agree": agree.cpu(),
+        "target_stats": {
+            "kept": int(keep.sum()), "pseudo": pseudo_count,
+            "mean_kept_weight": round(float(weights[keep].mean()), 6),
+        },
     }
 
 
@@ -228,10 +305,23 @@ def train(args) -> None:
     ckpt_dir = work / "lora"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
-    prep = prepare_targets(args, device)
+    cache = torch.load(work / "cache" / "train_features.pt", map_location="cpu")
+    labels = cache["labels"]
+    if args.full:
+        tr_idx = torch.arange(labels.numel())
+        va_idx = torch.arange(0)
+    else:
+        tr_idx, va_idx = stratified_split(labels, args.val_frac, args.seed)
+    if args.smoke:
+        generator = torch.Generator().manual_seed(args.seed)
+        tr_idx = tr_idx[torch.randperm(tr_idx.numel(), generator=generator)[:5000]].sort().values
+        va_idx = va_idx[torch.randperm(va_idx.numel(), generator=generator)[:2000]].sort().values if va_idx.numel() else va_idx
+        args.epochs = 2
+
+    prep = prepare_targets(args, device, tr_idx, va_idx)
     class_names = prep["class_names"]
     num_classes = len(class_names)
-    targets_all = prep["targets"].to(device)
+    target_labels_all = prep["target_labels"].to(device)
     weights_all = prep["weights"].to(device)
     labels_all = prep["labels"].to(device)
     agree_all = prep["agree"].to(device)
@@ -241,23 +331,13 @@ def train(args) -> None:
     names_check = [Path(p).name for p in paths]
     assert names_check == prep["image_names"], "ImageFolder order mismatch with feature cache"
 
-    if args.full:
-        tr_idx = torch.arange(len(paths))
-        va_idx = torch.arange(0)
-    else:
-        tr_idx, va_idx = stratified_split(prep["labels"], args.val_frac, args.seed)
-    if args.smoke:
-        tr_idx = tr_idx[torch.randperm(tr_idx.numel())[:5000]].sort().values
-        va_idx = va_idx[torch.randperm(va_idx.numel())[:2000]].sort().values if va_idx.numel() else va_idx
-        args.epochs = 2
-
     usable = (weights_all[tr_idx.to(device)] > 0).cpu()
     tr_idx = tr_idx[usable]
     print(f"train images {tr_idx.numel()}  val images {va_idx.numel()}")
 
     model = build_model(num_classes, args.lora_rank, args.lora_alpha, args.lora_dropout,
-                        prep["teacher_head_state"], device)
-    train_tf, eval_tf = build_transforms(model.backbone)
+                        prep["teacher_head_state"], device, lora_blocks=args.lora_blocks)
+    train_tf, eval_tf = build_transforms(model.backbone, args.crop_min_scale)
     n_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"trainable params: {n_trainable / 1e6:.2f}M")
 
@@ -285,26 +365,50 @@ def train(args) -> None:
         opt, max_lr=[args.lora_lr, args.head_lr], total_steps=args.epochs * steps_per_epoch,
         pct_start=0.1, anneal_strategy="cos")
     scaler = torch.amp.GradScaler("cuda")
+    start_epoch = 1
+    if args.resume:
+        resume = torch.load(Path(args.resume), map_location=device)
+        model.load_state_dict(resume["model"])
+        opt.load_state_dict(resume["optimizer"])
+        sched.load_state_dict(resume["scheduler"])
+        scaler.load_state_dict(resume["scaler"])
+        start_epoch = int(resume["epoch"]) + 1
+        print(f"resuming {args.resume} from epoch {start_epoch}")
+
+    def checkpoint_payload(epoch: int, bands: dict | None = None) -> dict:
+        return {
+            "model": model.state_dict(), "class_names": class_names,
+            "epoch": epoch, "bands": bands, "args": vars(args),
+            "target_stats": prep["target_stats"],
+            "train_idx": tr_idx, "val_idx": va_idx,
+            "model_name": MODEL_NAME, "single_model": True,
+            "optimizer": opt.state_dict(), "scheduler": sched.state_dict(),
+            "scaler": scaler.state_dict(),
+        }
 
     va_labels = labels_all[va_idx.to(device)] if va_idx.numel() else None
     va_agree = agree_all[va_idx.to(device)] if va_idx.numel() else None
     history = []
     best_mid = -1.0
-    for epoch in range(1, args.epochs + 1):
+    stale_epochs = 0
+    for epoch in range(start_epoch, args.epochs + 1):
         model.train()
         t0 = time.time()
         tot_loss, tot_seen = 0.0, 0
         for images, idx in train_loader:
             images = images.to(device, non_blocking=True)
             gidx = tr_idx_gpu[idx.to(device)]
-            tb = targets_all[gidx]
+            tb = target_labels_all[gidx]
             wb = weights_all[gidx]
             opt.zero_grad(set_to_none=True)
             with torch.autocast("cuda", dtype=torch.float16):
                 logits = model(images)
-                loss_vec = -(tb * logits.log_softmax(1)).sum(1)
+                loss_vec = F.cross_entropy(
+                    logits, tb, reduction="none", label_smoothing=args.label_smoothing)
                 loss = (loss_vec * wb).sum() / wb.sum().clamp_min(1e-6)
             scaler.scale(loss).backward()
+            scaler.unscale_(opt)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
             scaler.step(opt)
             scaler.update()
             sched.step()
@@ -318,16 +422,19 @@ def train(args) -> None:
             msg += "  " + "  ".join(f"{k}={v}" for k, v in bands.items())
             if bands["mid_03_06"] > best_mid:
                 best_mid = bands["mid_03_06"]
-                torch.save({"model": model.state_dict(), "class_names": class_names,
-                            "epoch": epoch, "bands": bands, "args": vars(args)},
-                           ckpt_dir / "best.pt")
+                stale_epochs = 0
+                torch.save(checkpoint_payload(epoch, bands), ckpt_dir / "best.pt")
                 msg += "  *best*"
+            else:
+                stale_epochs += 1
         print(msg, flush=True)
         history.append(entry)
-        torch.save({"model": model.state_dict(), "class_names": class_names,
-                    "epoch": epoch, "args": vars(args)}, ckpt_dir / "last.pt")
+        torch.save(checkpoint_payload(epoch), ckpt_dir / ("full.pt" if args.full else "last.pt"))
         with (ckpt_dir / "history.json").open("w", encoding="utf-8") as fp:
             json.dump(history, fp, indent=2)
+        if val_loader is not None and args.early_stop_patience > 0 and stale_epochs >= args.early_stop_patience:
+            print(f"early stopping after {stale_epochs} stale epochs")
+            break
     print("done")
 
 
@@ -335,17 +442,18 @@ def train(args) -> None:
 def predict(args) -> None:
     device = torch.device("cuda")
     work = Path(args.work_dir)
-    ckpt_path = work / "lora" / ("best.pt" if (work / "lora" / "best.pt").exists() else "last.pt")
+    ckpt_path = choose_checkpoint(work / "lora", args.checkpoint)
     ckpt = torch.load(ckpt_path, map_location="cpu")
     class_names = ckpt["class_names"]
     targs = ckpt.get("args", {})
     model = build_model(len(class_names), targs.get("lora_rank", args.lora_rank),
-                        targs.get("lora_alpha", args.lora_alpha), 0.0, None, device)
+                        targs.get("lora_alpha", args.lora_alpha), 0.0, None, device,
+                        lora_blocks=targs.get("lora_blocks", args.lora_blocks))
     model.load_state_dict(ckpt["model"])
     model.eval()
     print(f"loaded {ckpt_path} (epoch {ckpt.get('epoch')})")
 
-    _, eval_tf = build_transforms(model.backbone)
+    _, eval_tf = build_transforms(model.backbone, targs.get("crop_min_scale", args.crop_min_scale))
     test_dir = Path(args.test_dir)
     paths = sorted(str(p) for p in test_dir.iterdir()
                    if p.is_file() and p.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp", ".webp"})
@@ -357,7 +465,8 @@ def predict(args) -> None:
         images = images.to(device, non_blocking=True)
         with torch.autocast("cuda", dtype=torch.float16):
             logits = model(images)
-            logits = logits + model(torch.flip(images, dims=[3]))
+            if not args.no_flip_tta:
+                logits = logits + model(torch.flip(images, dims=[3]))
         preds[idx.numpy()] = logits.argmax(1).cpu().numpy()
 
     out_csv = Path(args.output_csv)
@@ -385,11 +494,26 @@ def parse_args():
     p.add_argument("--knn-k", type=int, default=16)
     p.add_argument("--keep-ratio", type=float, default=0.75)
     p.add_argument("--pseudo-thresh", type=float, default=0.7)
+    p.add_argument("--pseudo-margin", type=float, default=0.2)
+    p.add_argument("--high-agreement-floor", type=float, default=0.7)
+    p.add_argument("--min-sample-weight", type=float, default=0.2)
+    p.add_argument("--agreement-power", type=float, default=1.0)
+    p.add_argument("--confidence-power", type=float, default=0.5)
+    p.add_argument("--margin-power", type=float, default=0.5)
+    p.add_argument("--teacher-epochs", type=int, default=20)
+    p.add_argument("--label-smoothing", type=float, default=0.1)
     p.add_argument("--lora-rank", type=int, default=16)
     p.add_argument("--lora-alpha", type=float, default=32.0)
     p.add_argument("--lora-dropout", type=float, default=0.05)
+    p.add_argument("--lora-blocks", type=int, default=12, choices=(4, 6, 12))
+    p.add_argument("--crop-min-scale", type=float, default=0.8)
     p.add_argument("--lora-lr", type=float, default=2e-4)
     p.add_argument("--head-lr", type=float, default=1e-3)
+    p.add_argument("--grad-clip", type=float, default=1.0)
+    p.add_argument("--early-stop-patience", type=int, default=4)
+    p.add_argument("--checkpoint", choices=("best", "last", "full"), default="best")
+    p.add_argument("--resume", default=None, help="resume from a training checkpoint using the same schedule")
+    p.add_argument("--no-flip-tta", action="store_true")
     p.add_argument("--full", action="store_true")
     p.add_argument("--smoke", action="store_true")
     p.add_argument("--predict", action="store_true")

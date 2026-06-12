@@ -207,12 +207,14 @@ def load_tensor_cache(path: Path):
     return torch.load(path, map_location="cpu")
 
 
-def cache_matches(payload: dict, expected_names: list[str], name_key: str) -> bool:
+def cache_matches(payload: dict, expected_names: list[str], name_key: str, expected_meta: dict | None = None) -> bool:
     if "features" not in payload or name_key not in payload:
         return False
     if int(payload["features"].size(0)) != len(expected_names):
         return False
-    return list(payload[name_key]) == expected_names
+    if list(payload[name_key]) != expected_names:
+        return False
+    return expected_meta is None or all(payload.get(k) == v for k, v in expected_meta.items())
 
 
 def train_head(
@@ -316,7 +318,7 @@ def save_predictions(
 def zip_submission(csv_path: Path) -> Path:
     zip_path = csv_path.with_suffix(".zip")
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.write(csv_path, arcname=csv_path.name)
+        zf.write(csv_path, arcname=DEFAULT_OUTPUT_NAME)
     return zip_path
 
 
@@ -343,6 +345,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
     test_paths = load_test_paths(test_dir, args.max_test_samples, args.seed)
     train_names = [Path(p).name for p, _ in train_samples]
     test_expected_names = [Path(p).name for p in test_paths]
+    cache_meta = {"model_name": MODEL_NAME, "tta_flip": not args.no_tta_flip}
     print(f"train samples: {len(train_samples)}")
     print(f"test samples: {len(test_paths)}")
     print(f"classes: {len(class_names)}")
@@ -350,7 +353,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
     train_cache_ok = False
     if not args.rebuild_cache and train_cache.exists():
         cached = load_tensor_cache(train_cache)
-        train_cache_ok = cache_matches(cached, train_names, "image_names") and cached.get("class_names") == class_names
+        train_cache_ok = cache_matches(cached, train_names, "image_names", cache_meta) and cached.get("class_names") == class_names
         if train_cache_ok:
             train_features = cached["features"]
             train_labels = cached["labels"]
@@ -376,13 +379,15 @@ def run_pipeline(args: argparse.Namespace) -> None:
                 "labels": train_labels,
                 "class_names": class_names,
                 "image_names": train_names,
+                "model_name": MODEL_NAME,
+                "tta_flip": not args.no_tta_flip,
             },
         )
 
     test_cache_ok = False
     if not args.rebuild_cache and test_cache.exists():
         cached = load_tensor_cache(test_cache)
-        test_cache_ok = cache_matches(cached, test_expected_names, "names")
+        test_cache_ok = cache_matches(cached, test_expected_names, "names", cache_meta)
         if test_cache_ok:
             test_features = cached["features"]
             test_names = cached["names"]
@@ -405,6 +410,8 @@ def run_pipeline(args: argparse.Namespace) -> None:
             {
                 "features": test_features,
                 "names": test_names,
+                "model_name": MODEL_NAME,
+                "tta_flip": not args.no_tta_flip,
             },
         )
 

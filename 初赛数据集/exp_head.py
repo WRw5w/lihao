@@ -63,7 +63,8 @@ def stratified_split(labels: torch.Tensor, val_frac: float, seed: int) -> tuple[
     for cls in np.unique(lab):
         idx = np.nonzero(lab == cls)[0]
         rng.shuffle(idx)
-        n_val = max(1, int(round(len(idx) * val_frac)))
+        requested = max(1, int(round(len(idx) * val_frac)))
+        n_val = min(len(idx) - 1, requested) if len(idx) > 1 else 0
         val_parts.append(idx[:n_val])
         train_parts.append(idx[n_val:])
     train_idx = np.sort(np.concatenate(train_parts))
@@ -444,7 +445,7 @@ def run_final(args: argparse.Namespace) -> None:
             writer.writerow([name, class_names[p]])
     zip_path = out_csv.with_suffix(".zip")
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.write(out_csv, arcname=out_csv.name)
+        zf.write(out_csv, arcname="pred_results.csv")
     print(f"saved {out_csv} and {zip_path} ({len(preds)} predictions)")
 
 
