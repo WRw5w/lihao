@@ -38,6 +38,33 @@ def knn_agreement(
     return agreement
 
 
+@torch.inference_mode()
+def knn_majority_prediction(
+    query: torch.Tensor,
+    gallery: torch.Tensor,
+    gallery_labels: torch.Tensor,
+    k: int,
+    num_classes: int,
+    *,
+    exclude_self: bool,
+    chunk: int = 2048,
+) -> torch.Tensor:
+    """Similarity-weighted kNN majority vote; returns predicted class per query."""
+    predictions = torch.empty(query.size(0), dtype=torch.long, device=query.device)
+    gallery_t = gallery.t().contiguous()
+    for start in range(0, query.size(0), chunk):
+        end = min(start + chunk, query.size(0))
+        sim = query[start:end] @ gallery_t
+        if exclude_self:
+            rows = torch.arange(start, end, device=sim.device)
+            sim[torch.arange(end - start, device=sim.device), rows] = -2.0
+        topv, topi = sim.topk(k, dim=1)
+        votes = torch.zeros((end - start, num_classes), device=sim.device)
+        votes.scatter_add_(1, gallery_labels[topi], topv.float().clamp_min(0))
+        predictions[start:end] = votes.argmax(1)
+    return predictions
+
+
 def fit_gmm_1d(x: torch.Tensor, iters: int = 50) -> torch.Tensor:
     """2-component 1D GMM via EM. Returns posterior prob of the low-mean (clean) component."""
     x = x.float()

@@ -46,9 +46,12 @@ class LoRALinear(nn.Module):
         return out
 
 
-def inject_lora(model: nn.Module, rank: int, alpha: float, dropout: float) -> list[str]:
+def inject_lora(model: nn.Module, rank: int, alpha: float, dropout: float, last_blocks: int = 12) -> list[str]:
     replaced = []
+    first_block = max(0, len(model.blocks) - last_blocks)
     for blk_i, blk in enumerate(model.blocks):
+        if blk_i < first_block:
+            continue
         attn = blk.attn
         attn.qkv = LoRALinear(attn.qkv, rank, alpha, dropout)
         attn.proj = LoRALinear(attn.proj, rank, alpha, dropout)
@@ -79,11 +82,12 @@ def build_frozen_backbone(device: torch.device) -> nn.Module:
 
 
 def build_lora_model(num_classes: int, rank: int, alpha: float, lora_dropout: float,
-                     head_state: dict | None, device: torch.device) -> LoraClassifier:
+                     head_state: dict | None, device: torch.device,
+                     lora_blocks: int = 12) -> LoraClassifier:
     backbone = timm.create_model(MODEL_NAME, pretrained=True, num_classes=0)
     for p in backbone.parameters():
         p.requires_grad_(False)
-    inject_lora(backbone, rank, alpha, lora_dropout)
+    inject_lora(backbone, rank, alpha, lora_dropout, last_blocks=lora_blocks)
     head = CosineClassifier(backbone.num_features, num_classes, dropout=0.0)
     if head_state is not None:
         head.load_state_dict(head_state)

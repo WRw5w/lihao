@@ -109,12 +109,12 @@ def build_extract_transform(model: nn.Module):
     )
 
 
-def build_finetune_transforms(model: nn.Module):
+def build_finetune_transforms(model: nn.Module, crop_min_scale: float = 0.8):
     """(train, eval) transform pair used for LoRA fine-tuning."""
     cfg = resolve_data_config(model=model)
     mean, std = cfg["mean"], cfg["std"]
     train_tf = transforms.Compose([
-        transforms.RandomResizedCrop(224, scale=(0.65, 1.0), interpolation=transforms.InterpolationMode.BICUBIC),
+        transforms.RandomResizedCrop(224, scale=(crop_min_scale, 1.0), interpolation=transforms.InterpolationMode.BICUBIC),
         transforms.RandomHorizontalFlip(),
         transforms.ColorJitter(0.2, 0.2, 0.1),
         transforms.ToTensor(),

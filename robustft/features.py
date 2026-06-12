@@ -77,9 +77,11 @@ def load_tensor_cache(path: Path):
     return torch.load(path, map_location="cpu")
 
 
-def cache_matches(payload: dict, expected_names: list[str], name_key: str) -> bool:
+def cache_matches(payload: dict, expected_names: list[str], name_key: str, expected_meta: dict | None = None) -> bool:
     if "features" not in payload or name_key not in payload:
         return False
     if int(payload["features"].size(0)) != len(expected_names):
         return False
-    return list(payload[name_key]) == expected_names
+    if list(payload[name_key]) != expected_names:
+        return False
+    return expected_meta is None or all(payload.get(k) == v for k, v in expected_meta.items())

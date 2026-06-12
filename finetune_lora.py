@@ -1,18 +1,21 @@
 """LoRA fine-tuning of CLIP ViT-B/32 on the kNN-denoised training set (thin entry).
 
-Pipeline (fully scripted, reproducible):
-  1. Load cached frozen features -> kNN agreement -> per-class top-75% keep mask
-     + high-agreement floor (same recipe as the head-level winner).
-  2. Train a frozen-feature teacher head, pseudo-label the dropped samples.
-  3. Inject LoRA into every attention qkv/proj Linear of the ViT; train LoRA +
+Pipeline (fully scripted, reproducible, strict validation):
+  1. Create the stratified train/val split BEFORE any label-driven step.
+  2. kNN agreement, keep mask and teacher training use the training partition
+     only; validation samples only query the training gallery.
+  3. Recover dropped samples solely via teacher-kNN consensus pseudo-labels;
+     kept samples get continuous reliability weights.
+  4. Inject LoRA into the last N attention blocks of the ViT; train LoRA +
      cosine head (warm-started from the teacher) on images with augmentation,
-     soft targets and sample weights.
-  4. Evaluate per epoch on a stratified noisy val split (banded metrics).
-  5. Save checkpoints; --predict generates the submission from the best one.
+     compact smoothed-label targets and sample weights.
+  5. Evaluate per epoch on the held-out noisy val split (banded metrics).
+  6. Save resumable checkpoints; --predict requires an explicit checkpoint
+     policy (best / last / full).
 
-Run:  python finetune_lora.py            (train, 90/10 split)
-      python finetune_lora.py --full     (train on 100% of the data)
-      python finetune_lora.py --predict  (inference from best checkpoint)
+Run:  python finetune_lora.py --epochs 15          (train, 90/10 split)
+      python finetune_lora.py --full --epochs 15   (train on 100% -> full.pt)
+      python finetune_lora.py --predict --checkpoint full
       python finetune_lora.py --smoke --work-dir outputs_tmp --cache-dir outputs/cache
 """
 
@@ -25,49 +28,85 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision.datasets import ImageFolder
 
 import config
 from robustft.data import IndexedImageDataset, build_finetune_transforms
-from robustft.denoise import knn_agreement, make_soft_targets_with_pseudo, per_class_topk_keep
-from robustft.engine import per_sample_stats, seed_everything, stratified_split, train_head
-from robustft.models import build_lora_model
+from robustft.denoise import knn_agreement, knn_majority_prediction, per_class_topk_keep
+from robustft.engine import seed_everything, stratified_split, teacher_stats, train_head
+from robustft.models import MODEL_NAME, build_lora_model
+from robustft.robust_utils import choose_checkpoint, validate_disjoint_split
 from robustft.submission import save_predictions, zip_submission
 
 
-def prepare_targets(args, device) -> dict:
-    """Frozen-feature stage: kNN keep mask + teacher + soft targets/weights.
+def prepare_targets(args, device, train_idx: torch.Tensor, val_idx: torch.Tensor) -> dict:
+    """Frozen-feature stage: kNN keep mask + teacher + compact targets/weights.
 
-    Returns everything index-aligned with ImageFolder ordering.
+    Split-first: every label-driven statistic is computed from the training
+    partition only. Returns everything index-aligned with ImageFolder ordering.
     """
     cache = torch.load(Path(args.cache_dir) / "train_features.pt", map_location="cpu")
     feats, labels, class_names = cache["features"], cache["labels"], cache["class_names"]
     image_names = cache["image_names"]
     num_classes = len(class_names)
+    validate_disjoint_split(train_idx.tolist(), val_idx.tolist())
     f16 = feats.to(device)
     f32 = feats.to(device, dtype=torch.float32)
     y = labels.to(device)
+    tr = train_idx.to(device)
+    va = val_idx.to(device)
+    ftr, ytr = f16[tr], y[tr]
 
     seed_everything(args.seed)
-    agree = knn_agreement(f16, y, f16, y, k=args.knn_k, exclude_self=True).to(device)
-    keep = per_class_topk_keep(agree, y, num_classes, keep_ratio=args.keep_ratio)
-    keep |= agree >= 0.7
+    agree = torch.zeros(y.numel(), dtype=torch.float32, device=device)
+    agree[tr] = knn_agreement(ftr, ytr, ftr, ytr, k=args.knn_k, exclude_self=True).to(device)
+    if va.numel():
+        agree[va] = knn_agreement(f16[va], y[va], ftr, ytr, k=args.knn_k, exclude_self=False).to(device)
+    keep = torch.zeros_like(y, dtype=torch.bool)
+    keep_tr = per_class_topk_keep(agree[tr], ytr, num_classes, keep_ratio=args.keep_ratio)
+    keep_tr |= agree[tr] >= args.high_agreement_floor
+    keep[tr] = keep_tr
     idx_keep = torch.nonzero(keep, as_tuple=False).squeeze(1)
     print(f"kNN filter keeps {idx_keep.numel()}/{y.numel()} ({idx_keep.numel() / y.numel():.2%})")
 
-    teacher = train_head(f32, y, num_classes, idx_keep, smoothing=0.1, epochs=20,
+    teacher = train_head(f32, y, num_classes, idx_keep, smoothing=0.1, epochs=args.teacher_epochs,
                          batch_size=8192, device=device)
-    _, _, preds_t, pmax_t = per_sample_stats(teacher, f32, y)
-    targets, weights, _ = make_soft_targets_with_pseudo(
-        y, keep, preds_t, pmax_t, num_classes, smoothing=0.1, pseudo_thresh=args.pseudo_thresh)
+    p_label, preds_t, pmax_t, margins_t = teacher_stats(teacher, f32, y)
+    knn_preds_tr = knn_majority_prediction(
+        ftr, ftr, ytr, args.knn_k, num_classes, exclude_self=True)
+
+    target_labels = y.clone()
+    weights = torch.zeros(y.numel(), dtype=torch.float32, device=device)
+    reliability = (
+        agree[tr].clamp(0, 1).pow(args.agreement_power)
+        * p_label[tr].clamp(0, 1).pow(args.confidence_power)
+        * margins_t[tr].clamp(0, 1).pow(args.margin_power)
+    )
+    weights[tr[keep_tr]] = args.min_sample_weight + (1.0 - args.min_sample_weight) * reliability[keep_tr]
+    pseudo_tr = (
+        (~keep_tr)
+        & (preds_t[tr] == knn_preds_tr)
+        & (pmax_t[tr] >= args.pseudo_thresh)
+        & (margins_t[tr] >= args.pseudo_margin)
+    )
+    if pseudo_tr.any():
+        pseudo_idx = tr[pseudo_tr]
+        target_labels[pseudo_idx] = preds_t[pseudo_idx]
+        weights[pseudo_idx] = pmax_t[pseudo_idx] * margins_t[pseudo_idx].sqrt()
+    pseudo_count = int(pseudo_tr.sum())
     print(f"targets ready: {int((weights > 0).sum())} usable samples "
-          f"({int(((weights > 0) & ~keep).sum())} pseudo-labelled)")
+          f"({pseudo_count} consensus pseudo-labelled)")
     return {
-        "targets": targets.cpu(), "weights": weights.cpu(), "labels": labels,
+        "target_labels": target_labels.cpu(), "weights": weights.cpu(), "labels": labels,
         "class_names": class_names, "image_names": image_names,
         "teacher_head_state": {k: v.cpu() for k, v in teacher.state_dict().items()},
         "agree": agree.cpu(),
+        "target_stats": {
+            "kept": int(keep.sum()), "pseudo": pseudo_count,
+            "mean_kept_weight": round(float(weights[keep].mean()), 6),
+        },
     }
 
 
@@ -94,10 +133,23 @@ def train(args) -> None:
     ckpt_dir = Path(args.work_dir) / "lora"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
-    prep = prepare_targets(args, device)
+    cache = torch.load(Path(args.cache_dir) / "train_features.pt", map_location="cpu")
+    labels = cache["labels"]
+    if args.full:
+        tr_idx = torch.arange(labels.numel())
+        va_idx = torch.arange(0)
+    else:
+        tr_idx, va_idx = stratified_split(labels, args.val_frac, args.seed)
+    if args.smoke:
+        generator = torch.Generator().manual_seed(args.seed)
+        tr_idx = tr_idx[torch.randperm(tr_idx.numel(), generator=generator)[:5000]].sort().values
+        va_idx = va_idx[torch.randperm(va_idx.numel(), generator=generator)[:2000]].sort().values if va_idx.numel() else va_idx
+        args.epochs = 2
+
+    prep = prepare_targets(args, device, tr_idx, va_idx)
     class_names = prep["class_names"]
     num_classes = len(class_names)
-    targets_all = prep["targets"].to(device)
+    target_labels_all = prep["target_labels"].to(device)
     weights_all = prep["weights"].to(device)
     labels_all = prep["labels"].to(device)
     agree_all = prep["agree"].to(device)
@@ -107,23 +159,13 @@ def train(args) -> None:
     names_check = [Path(p).name for p in paths]
     assert names_check == prep["image_names"], "ImageFolder order mismatch with feature cache"
 
-    if args.full:
-        tr_idx = torch.arange(len(paths))
-        va_idx = torch.arange(0)
-    else:
-        tr_idx, va_idx = stratified_split(prep["labels"], args.val_frac, args.seed)
-    if args.smoke:
-        tr_idx = tr_idx[torch.randperm(tr_idx.numel())[:5000]].sort().values
-        va_idx = va_idx[torch.randperm(va_idx.numel())[:2000]].sort().values if va_idx.numel() else va_idx
-        args.epochs = 2
-
     usable = (weights_all[tr_idx.to(device)] > 0).cpu()
     tr_idx = tr_idx[usable]
     print(f"train images {tr_idx.numel()}  val images {va_idx.numel()}")
 
     model = build_lora_model(num_classes, args.lora_rank, args.lora_alpha, args.lora_dropout,
-                             prep["teacher_head_state"], device)
-    train_tf, eval_tf = build_finetune_transforms(model.backbone)
+                             prep["teacher_head_state"], device, lora_blocks=args.lora_blocks)
+    train_tf, eval_tf = build_finetune_transforms(model.backbone, args.crop_min_scale)
     n_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"trainable params: {n_trainable / 1e6:.2f}M")
 
@@ -151,26 +193,50 @@ def train(args) -> None:
         opt, max_lr=[args.lora_lr, args.head_lr], total_steps=args.epochs * steps_per_epoch,
         pct_start=0.1, anneal_strategy="cos")
     scaler = torch.amp.GradScaler("cuda")
+    start_epoch = 1
+    if args.resume:
+        resume = torch.load(Path(args.resume), map_location=device)
+        model.load_state_dict(resume["model"])
+        opt.load_state_dict(resume["optimizer"])
+        sched.load_state_dict(resume["scheduler"])
+        scaler.load_state_dict(resume["scaler"])
+        start_epoch = int(resume["epoch"]) + 1
+        print(f"resuming {args.resume} from epoch {start_epoch}")
+
+    def checkpoint_payload(epoch: int, bands: dict | None = None) -> dict:
+        return {
+            "model": model.state_dict(), "class_names": class_names,
+            "epoch": epoch, "bands": bands, "args": vars(args),
+            "target_stats": prep["target_stats"],
+            "train_idx": tr_idx, "val_idx": va_idx,
+            "model_name": MODEL_NAME, "single_model": True,
+            "optimizer": opt.state_dict(), "scheduler": sched.state_dict(),
+            "scaler": scaler.state_dict(),
+        }
 
     va_labels = labels_all[va_idx.to(device)] if va_idx.numel() else None
     va_agree = agree_all[va_idx.to(device)] if va_idx.numel() else None
     history = []
     best_mid = -1.0
-    for epoch in range(1, args.epochs + 1):
+    stale_epochs = 0
+    for epoch in range(start_epoch, args.epochs + 1):
         model.train()
         t0 = time.time()
         tot_loss, tot_seen = 0.0, 0
         for images, idx in train_loader:
             images = images.to(device, non_blocking=True)
             gidx = tr_idx_gpu[idx.to(device)]
-            tb = targets_all[gidx]
+            tb = target_labels_all[gidx]
             wb = weights_all[gidx]
             opt.zero_grad(set_to_none=True)
             with torch.autocast("cuda", dtype=torch.float16):
                 logits = model(images)
-                loss_vec = -(tb * logits.log_softmax(1)).sum(1)
+                loss_vec = F.cross_entropy(
+                    logits, tb, reduction="none", label_smoothing=args.label_smoothing)
                 loss = (loss_vec * wb).sum() / wb.sum().clamp_min(1e-6)
             scaler.scale(loss).backward()
+            scaler.unscale_(opt)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
             scaler.step(opt)
             scaler.update()
             sched.step()
@@ -184,34 +250,37 @@ def train(args) -> None:
             msg += "  " + "  ".join(f"{k}={v}" for k, v in bands.items())
             if bands["mid_03_06"] > best_mid:
                 best_mid = bands["mid_03_06"]
-                torch.save({"model": model.state_dict(), "class_names": class_names,
-                            "epoch": epoch, "bands": bands, "args": vars(args)},
-                           ckpt_dir / "best.pt")
+                stale_epochs = 0
+                torch.save(checkpoint_payload(epoch, bands), ckpt_dir / "best.pt")
                 msg += "  *best*"
+            else:
+                stale_epochs += 1
         print(msg, flush=True)
         history.append(entry)
-        torch.save({"model": model.state_dict(), "class_names": class_names,
-                    "epoch": epoch, "args": vars(args)}, ckpt_dir / "last.pt")
+        torch.save(checkpoint_payload(epoch), ckpt_dir / ("full.pt" if args.full else "last.pt"))
         with (ckpt_dir / "history.json").open("w", encoding="utf-8") as fp:
             json.dump(history, fp, indent=2)
+        if val_loader is not None and args.early_stop_patience > 0 and stale_epochs >= args.early_stop_patience:
+            print(f"early stopping after {stale_epochs} stale epochs")
+            break
     print("done")
 
 
 @torch.inference_mode()
 def predict(args) -> None:
     device = torch.device("cuda")
-    lora_dir = Path(args.work_dir) / "lora"
-    ckpt_path = lora_dir / ("best.pt" if (lora_dir / "best.pt").exists() else "last.pt")
+    ckpt_path = choose_checkpoint(Path(args.work_dir) / "lora", args.checkpoint)
     ckpt = torch.load(ckpt_path, map_location="cpu")
     class_names = ckpt["class_names"]
     targs = ckpt.get("args", {})
     model = build_lora_model(len(class_names), targs.get("lora_rank", args.lora_rank),
-                             targs.get("lora_alpha", args.lora_alpha), 0.0, None, device)
+                             targs.get("lora_alpha", args.lora_alpha), 0.0, None, device,
+                             lora_blocks=targs.get("lora_blocks", args.lora_blocks))
     model.load_state_dict(ckpt["model"])
     model.eval()
     print(f"loaded {ckpt_path} (epoch {ckpt.get('epoch')})")
 
-    _, eval_tf = build_finetune_transforms(model.backbone)
+    _, eval_tf = build_finetune_transforms(model.backbone, targs.get("crop_min_scale", args.crop_min_scale))
     test_dir = Path(args.test_dir)
     paths = sorted(str(p) for p in test_dir.iterdir()
                    if p.is_file() and p.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp", ".webp"})
@@ -223,7 +292,8 @@ def predict(args) -> None:
         images = images.to(device, non_blocking=True)
         with torch.autocast("cuda", dtype=torch.float16):
             logits = model(images)
-            logits = logits + model(torch.flip(images, dims=[3]))
+            if not args.no_flip_tta:
+                logits = logits + model(torch.flip(images, dims=[3]))
         preds[idx.numpy()] = logits.argmax(1).cpu().numpy()
 
     out_csv = Path(args.output_csv)
@@ -249,11 +319,26 @@ def parse_args():
     p.add_argument("--knn-k", type=int, default=16)
     p.add_argument("--keep-ratio", type=float, default=0.75)
     p.add_argument("--pseudo-thresh", type=float, default=0.7)
+    p.add_argument("--pseudo-margin", type=float, default=0.2)
+    p.add_argument("--high-agreement-floor", type=float, default=0.7)
+    p.add_argument("--min-sample-weight", type=float, default=0.2)
+    p.add_argument("--agreement-power", type=float, default=1.0)
+    p.add_argument("--confidence-power", type=float, default=0.5)
+    p.add_argument("--margin-power", type=float, default=0.5)
+    p.add_argument("--teacher-epochs", type=int, default=20)
+    p.add_argument("--label-smoothing", type=float, default=0.1)
     p.add_argument("--lora-rank", type=int, default=16)
     p.add_argument("--lora-alpha", type=float, default=32.0)
     p.add_argument("--lora-dropout", type=float, default=0.05)
+    p.add_argument("--lora-blocks", type=int, default=12, choices=(4, 6, 12))
+    p.add_argument("--crop-min-scale", type=float, default=0.8)
     p.add_argument("--lora-lr", type=float, default=2e-4)
     p.add_argument("--head-lr", type=float, default=1e-3)
+    p.add_argument("--grad-clip", type=float, default=1.0)
+    p.add_argument("--early-stop-patience", type=int, default=4)
+    p.add_argument("--checkpoint", choices=("best", "last", "full"), default="best")
+    p.add_argument("--resume", default=None, help="resume from a training checkpoint using the same schedule")
+    p.add_argument("--no-flip-tta", action="store_true")
     p.add_argument("--full", action="store_true")
     p.add_argument("--smoke", action="store_true")
     p.add_argument("--predict", action="store_true")

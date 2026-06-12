@@ -40,7 +40,8 @@ def stratified_split(labels: torch.Tensor, val_frac: float, seed: int) -> tuple[
     for cls in np.unique(lab):
         idx = np.nonzero(lab == cls)[0]
         rng.shuffle(idx)
-        n_val = max(1, int(round(len(idx) * val_frac)))
+        requested = max(1, int(round(len(idx) * val_frac)))
+        n_val = min(len(idx) - 1, requested) if len(idx) > 1 else 0
         val_parts.append(idx[:n_val])
         train_parts.append(idx[n_val:])
     train_idx = np.sort(np.concatenate(train_parts))
@@ -157,6 +158,23 @@ def per_sample_stats(model: CosineClassifier, feats: torch.Tensor, labels: torch
         preds.append(mx.indices)
         p_max.append(mx.values)
     return (torch.cat(losses), torch.cat(p_label), torch.cat(preds), torch.cat(p_max))
+
+
+@torch.inference_mode()
+def teacher_stats(model: CosineClassifier, features: torch.Tensor, labels: torch.Tensor, batch: int = 16384):
+    """Returns (prob_of_label, argmax, max_prob, top1-top2 margin) per sample."""
+    model.eval()
+    p_label, preds, pmax, margins = [], [], [], []
+    for start in range(0, features.size(0), batch):
+        logits = model(features[start : start + batch])
+        probs = logits.softmax(1)
+        top2 = probs.topk(2, dim=1)
+        yb = labels[start : start + batch]
+        p_label.append(probs.gather(1, yb[:, None]).squeeze(1))
+        preds.append(top2.indices[:, 0])
+        pmax.append(top2.values[:, 0])
+        margins.append(top2.values[:, 0] - top2.values[:, 1])
+    return tuple(torch.cat(x) for x in (p_label, preds, pmax, margins))
 
 
 def banded_eval(model: CosineClassifier, feats: torch.Tensor, labels: torch.Tensor,

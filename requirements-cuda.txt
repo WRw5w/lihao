@@ -1,0 +1,6 @@
+# 先装本文件再装 requirements.txt，避免 PyPI 默认源装到 CPU 版 torch。
+# 本机（RTX 5060 Laptop, CUDA 13.0）实测 cu130；队友训练机用 cu128 亦可：
+#   --index-url https://download.pytorch.org/whl/cu128
+--index-url https://download.pytorch.org/whl/cu130
+torch==2.11.0
+torchvision==0.26.0
