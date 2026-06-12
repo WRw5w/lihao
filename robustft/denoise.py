@@ -1,0 +1,123 @@
+"""Noise handling: kNN label-agreement scoring, sample selection, pseudo-labels."""
+
+from __future__ import annotations
+
+import torch
+
+from robustft.engine import smooth_one_hot
+from robustft.models import CosineClassifier
+
+
+@torch.inference_mode()
+def knn_agreement(
+    query: torch.Tensor,
+    query_labels: torch.Tensor,
+    gallery: torch.Tensor,
+    gallery_labels: torch.Tensor,
+    k: int,
+    exclude_self: bool,
+    chunk: int = 2048,
+) -> torch.Tensor:
+    """Weighted fraction of k nearest gallery neighbours sharing the query label.
+
+    Features must be L2-normalised. exclude_self assumes query == gallery row-aligned.
+    """
+    n = query.size(0)
+    agreement = torch.empty(n, dtype=torch.float32)
+    g = gallery.t().contiguous()
+    for start in range(0, n, chunk):
+        end = min(start + chunk, n)
+        sim = query[start:end] @ g  # (b, N) fp16
+        if exclude_self:
+            rows = torch.arange(start, end, device=sim.device)
+            sim[torch.arange(end - start, device=sim.device), rows] = -2.0
+        topv, topi = sim.topk(k, dim=1)
+        same = (gallery_labels[topi] == query_labels[start:end, None]).float()
+        w = topv.float().clamp_min(0)
+        agreement[start:end] = (same * w).sum(1) / w.sum(1).clamp_min(1e-6)
+    return agreement
+
+
+def fit_gmm_1d(x: torch.Tensor, iters: int = 50) -> torch.Tensor:
+    """2-component 1D GMM via EM. Returns posterior prob of the low-mean (clean) component."""
+    x = x.float()
+    mu = torch.tensor([x.quantile(0.25), x.quantile(0.75)], device=x.device)
+    var = torch.full((2,), x.var().item() + 1e-6, device=x.device)
+    pi = torch.tensor([0.5, 0.5], device=x.device)
+    for _ in range(iters):
+        log_p = (
+            -0.5 * (x[:, None] - mu[None, :]) ** 2 / var[None, :]
+            - 0.5 * var.log()[None, :]
+            + pi.log()[None, :]
+        )
+        resp = log_p.softmax(dim=1)
+        nk = resp.sum(0).clamp_min(1e-6)
+        mu = (resp * x[:, None]).sum(0) / nk
+        var = ((resp * (x[:, None] - mu[None, :]) ** 2).sum(0) / nk).clamp_min(1e-8)
+        pi = nk / x.numel()
+    clean_comp = int(mu.argmin())
+    return resp[:, clean_comp]
+
+
+def per_class_topk_keep(score: torch.Tensor, labels: torch.Tensor, num_classes: int, keep_ratio: float) -> torch.Tensor:
+    """Keep top keep_ratio of each class by score; returns bool mask."""
+    keep = torch.zeros_like(labels, dtype=torch.bool)
+    for cls in range(num_classes):
+        cls_idx = torch.nonzero(labels == cls, as_tuple=False).squeeze(1)
+        if cls_idx.numel() == 0:
+            continue
+        k = min(cls_idx.numel(), max(1, int(cls_idx.numel() * keep_ratio)))
+        top = torch.topk(score[cls_idx], k=k, largest=True).indices
+        keep[cls_idx[top]] = True
+    return keep
+
+
+def select_clean_indices(
+    model: CosineClassifier,
+    features: torch.Tensor,
+    labels: torch.Tensor,
+    keep_ratio: float,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Legacy baseline selection: per-class top-k by classifier confidence."""
+    model.eval()
+    with torch.inference_mode():
+        logits = model(features)
+        probs = logits.softmax(dim=1)
+        conf = probs[torch.arange(labels.size(0), device=labels.device), labels]
+    num_classes = logits.size(1)
+    keep_chunks = []
+    for cls in range(num_classes):
+        cls_idx = torch.nonzero(labels == cls, as_tuple=False).squeeze(1)
+        if cls_idx.numel() == 0:
+            continue
+        k = max(1, int(cls_idx.numel() * keep_ratio))
+        k = min(k, cls_idx.numel())
+        topk = torch.topk(conf[cls_idx], k=k, largest=True).indices
+        keep_chunks.append(cls_idx[topk])
+    keep_idx = torch.cat(keep_chunks) if keep_chunks else torch.empty(0, dtype=torch.long, device=labels.device)
+    keep_idx = keep_idx[torch.argsort(keep_idx)]
+    return keep_idx, conf
+
+
+def make_soft_targets_with_pseudo(
+    labels: torch.Tensor,
+    keep_mask: torch.Tensor,
+    teacher_preds: torch.Tensor,
+    teacher_pmax: torch.Tensor,
+    num_classes: int,
+    smoothing: float,
+    pseudo_thresh: float,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Kept samples: smoothed original label, weight 1.
+    Dropped samples with confident teacher: smoothed pseudo-label, weight = teacher confidence.
+    Others: excluded (weight 0)."""
+    n = labels.size(0)
+    targets = smooth_one_hot(labels, num_classes, smoothing)
+    weights = torch.zeros(n, device=labels.device)
+    weights[keep_mask] = 1.0
+    pseudo_mask = (~keep_mask) & (teacher_pmax >= pseudo_thresh)
+    if pseudo_mask.any():
+        targets[pseudo_mask] = smooth_one_hot(teacher_preds[pseudo_mask], num_classes, smoothing)
+        weights[pseudo_mask] = teacher_pmax[pseudo_mask]
+    used = torch.nonzero(weights > 0, as_tuple=False).squeeze(1)
+    return targets, weights, used

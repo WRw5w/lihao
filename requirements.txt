@@ -1,0 +1,9 @@
+# 实测环境（Windows 11, Python 3.11, CUDA 13.0）
+# torch/torchvision 需按平台选择 CUDA 构建：
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130
+torch==2.11.0
+torchvision==0.26.0
+timm==1.0.27
+numpy==2.4.3
+Pillow==12.1.1
+tqdm==4.67.3

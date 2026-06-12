@@ -1,0 +1,10 @@
+{
+  "model": "vit_base_patch32_clip_224.openai",
+  "device": "cuda",
+  "train_samples": 103218,
+  "test_samples": 24967,
+  "classes": 500,
+  "keep_ratio": 0.8,
+  "output_csv": "D:\\02_Projects\\ML\\jinyinsai\\初赛数据集\\pred_results.csv",
+  "output_zip": "D:\\02_Projects\\ML\\jinyinsai\\初赛数据集\\pred_results.zip"
+}

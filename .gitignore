@@ -7,3 +7,6 @@
 *.pt
 **/outputs/lora/*.pt
 *.pth
+outputs_tmp/
+archive/do/
+archive/*.zip

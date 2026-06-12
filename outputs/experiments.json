@@ -1,0 +1,56 @@
+{
+  "config": {
+    "work_dir": "outputs",
+    "output_csv": "pred_results.csv",
+    "seed": 42,
+    "val_frac": 0.1,
+    "epochs": 15,
+    "batch_size": 8192,
+    "knn_k": 16,
+    "keep_ratio": 0.75,
+    "clean_val_thresh": 0.6,
+    "pseudo_thresh": 0.7,
+    "mixup_alpha": 0.2,
+    "ema_decay": 0.999,
+    "final": false,
+    "method": "knn_soft_mix"
+  },
+  "noise_scan": {
+    "agree_lt_0.1": 0.2144,
+    "agree_lt_0.3": 0.4201,
+    "agree_lt_0.5": 0.5906
+  },
+  "results": {
+    "A_ce": {
+      "val_acc": 0.6264,
+      "clean_val_acc": 0.987
+    },
+    "B_conf2stage": {
+      "val_acc": 0.584,
+      "clean_val_acc": 0.9749,
+      "kept": 74142
+    },
+    "C_knn": {
+      "val_acc": 0.5881,
+      "clean_val_acc": 0.9809,
+      "kept": 69694
+    },
+    "D_gmm": {
+      "val_acc": 0.5934,
+      "clean_val_acc": 0.9791,
+      "mean_clean_prob": 0.605
+    },
+    "E_knn_soft": {
+      "val_acc": 0.6279,
+      "clean_val_acc": 0.99,
+      "used": 69714,
+      "pseudo": 20
+    },
+    "F_knn_soft_mix": {
+      "val_acc": 0.591,
+      "clean_val_acc": 0.9827,
+      "mixup": 0.2,
+      "ema": 0.999
+    }
+  }
+}
