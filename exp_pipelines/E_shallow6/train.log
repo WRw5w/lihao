@@ -1,0 +1,26 @@
+kNN filter keeps 69694/103218 (67.52%)
+targets ready: 69738 usable samples (44 consensus pseudo-labelled)
+train images 69738  val images 10285
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+trainable params: 1.56M
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+D:\04_Tools\Python\Lib\site-packages\PIL\TiffImagePlugin.py:949: UserWarning: Corrupt EXIF data.  Expecting to read 4 bytes but only got 2. 
+  warnings.warn(str(msg))
+epoch 01/12 loss=1.8763 time=440s  noisy_all=0.6063  low_lt03=0.2307  mid_03_06=0.7478  high_ge06=0.9815  *best*
+epoch 02/12 loss=1.6100 time=441s  noisy_all=0.6292  low_lt03=0.2604  mid_03_06=0.7819  high_ge06=0.9864  *best*
+epoch 03/12 loss=1.4832 time=407s  noisy_all=0.6498  low_lt03=0.2885  mid_03_06=0.8111  high_ge06=0.9903  *best*
+epoch 04/12 loss=1.4041 time=389s  noisy_all=0.6714  low_lt03=0.3208  mid_03_06=0.8384  high_ge06=0.9933  *best*
+epoch 05/12 loss=1.3443 time=411s  noisy_all=0.6913  low_lt03=0.3512  mid_03_06=0.8657  high_ge06=0.9936  *best*
+epoch 06/12 loss=1.2975 time=387s  noisy_all=0.7021  low_lt03=0.3723  mid_03_06=0.8736  high_ge06=0.9933  *best*
+epoch 07/12 loss=1.2608 time=385s  noisy_all=0.711  low_lt03=0.3907  mid_03_06=0.8784  high_ge06=0.9933  *best*
+D:\04_Tools\Python\Lib\site-packages\PIL\TiffImagePlugin.py:949: UserWarning: Corrupt EXIF data.  Expecting to read 4 bytes but only got 2. 
+  warnings.warn(str(msg))
+epoch 08/12 loss=1.2302 time=413s  noisy_all=0.7159  low_lt03=0.3995  mid_03_06=0.8807  high_ge06=0.9952  *best*
+epoch 09/12 loss=1.2056 time=402s  noisy_all=0.7204  low_lt03=0.4081  mid_03_06=0.8829  high_ge06=0.9961  *best*
+epoch 10/12 loss=1.1892 time=378s  noisy_all=0.7239  low_lt03=0.4157  mid_03_06=0.884  high_ge06=0.9961  *best*
+epoch 11/12 loss=1.1802 time=432s  noisy_all=0.7257  low_lt03=0.4199  mid_03_06=0.8844  high_ge06=0.9961  *best*
+epoch 12/12 loss=1.1752 time=433s  noisy_all=0.7265  low_lt03=0.4201  mid_03_06=0.887  high_ge06=0.9961  *best*
+done

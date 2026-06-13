@@ -1,0 +1,26 @@
+kNN filter keeps 78765/103218 (76.31%)
+targets ready: 78865 usable samples (100 consensus pseudo-labelled)
+train images 78865  val images 10285
+trainable params: 2.74M
+D:\04_Tools\Python\Lib\site-packages\PIL\TiffImagePlugin.py:949: UserWarning: Corrupt EXIF data.  Expecting to read 4 bytes but only got 2. 
+  warnings.warn(str(msg))
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+epoch 01/12 loss=1.9169 time=445s  noisy_all=0.6254  low_lt03=0.2551  mid_03_06=0.777  high_ge06=0.9855  *best*
+epoch 02/12 loss=1.6688 time=430s  noisy_all=0.6529  low_lt03=0.2957  mid_03_06=0.8103  high_ge06=0.9912  *best*
+D:\04_Tools\Python\Lib\site-packages\PIL\TiffImagePlugin.py:949: UserWarning: Corrupt EXIF data.  Expecting to read 4 bytes but only got 2. 
+  warnings.warn(str(msg))
+epoch 03/12 loss=1.5356 time=429s  noisy_all=0.6786  low_lt03=0.3331  mid_03_06=0.847  high_ge06=0.9927  *best*
+epoch 04/12 loss=1.4508 time=425s  noisy_all=0.7008  low_lt03=0.3679  mid_03_06=0.8758  high_ge06=0.9933  *best*
+epoch 05/12 loss=1.3818 time=425s  noisy_all=0.716  low_lt03=0.3967  mid_03_06=0.8866  high_ge06=0.9942  *best*
+epoch 06/12 loss=1.3288 time=433s  noisy_all=0.7265  low_lt03=0.4171  mid_03_06=0.8934  high_ge06=0.9949  *best*
+epoch 07/12 loss=1.2833 time=425s  noisy_all=0.7349  low_lt03=0.4315  mid_03_06=0.902  high_ge06=0.9952  *best*
+epoch 08/12 loss=1.2444 time=433s  noisy_all=0.7397  low_lt03=0.4427  mid_03_06=0.9039  high_ge06=0.9942  *best*
+epoch 09/12 loss=1.2151 time=488s  noisy_all=0.7435  low_lt03=0.4517  mid_03_06=0.9035  high_ge06=0.9946
+epoch 10/12 loss=1.1931 time=463s  noisy_all=0.743  low_lt03=0.4519  mid_03_06=0.9016  high_ge06=0.9942
+epoch 11/12 loss=1.1822 time=447s  noisy_all=0.7429  low_lt03=0.4524  mid_03_06=0.9009  high_ge06=0.9939
+epoch 12/12 loss=1.1771 time=463s  noisy_all=0.7428  low_lt03=0.4529  mid_03_06=0.9001  high_ge06=0.9936
+early stopping after 4 stale epochs
+done
