@@ -191,9 +191,10 @@ def train(args) -> None:
         for p in ema_model.parameters():
             p.requires_grad_(False)
 
+    pin = not args.no_pin
     train_ds = IndexedImageDataset([paths[i] for i in tr_idx.tolist()], train_tf)
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True,
-                              num_workers=args.num_workers, pin_memory=True,
+                              num_workers=args.num_workers, pin_memory=pin,
                               persistent_workers=args.num_workers > 0, drop_last=True)
     val_loader = None
     if va_idx.numel():
@@ -201,7 +202,7 @@ def train(args) -> None:
         # Windows: workers are full processes (~1GB each); keep val pool small and
         # persistent so it is spawned once instead of every epoch.
         val_loader = DataLoader(val_ds, batch_size=args.batch_size * 2, shuffle=False,
-                                num_workers=2, pin_memory=True, persistent_workers=True)
+                                num_workers=2, pin_memory=pin, persistent_workers=True)
 
     tr_idx_gpu = tr_idx.to(device)
     lora_params = [p for n, p in model.named_parameters() if p.requires_grad and "head" not in n]
@@ -304,7 +305,7 @@ def train(args) -> None:
         model.load_state_dict(ckpt["model"])
         ho_ds = IndexedImageDataset([paths[i] for i in ho_idx.tolist()], eval_tf)
         ho_loader = DataLoader(ho_ds, batch_size=args.batch_size * 2, shuffle=False,
-                               num_workers=2, pin_memory=True)
+                               num_workers=2, pin_memory=not args.no_pin)
         ho_labels = labels_all[ho_idx.to(device)]
         ho_agree = agree_all[ho_idx.to(device)]
         bands = evaluate_images(model, ho_loader, ho_labels, ho_agree, device)
@@ -340,7 +341,7 @@ def predict(args) -> None:
                    if p.is_file() and p.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp", ".webp"})
     ds = IndexedImageDataset(paths, eval_tf)
     loader = DataLoader(ds, batch_size=args.batch_size * 2, shuffle=False,
-                        num_workers=args.num_workers, pin_memory=True)
+                        num_workers=args.num_workers, pin_memory=not args.no_pin)
     preds = np.empty(len(paths), dtype=np.int64)
     for images, idx in loader:
         images = images.to(device, non_blocking=True)
@@ -404,6 +405,9 @@ def parse_args():
     p.add_argument("--checkpoint", choices=("best", "last", "full"), default="best")
     p.add_argument("--resume", default=None, help="resume from a training checkpoint using the same schedule")
     p.add_argument("--no-flip-tta", action="store_true")
+    p.add_argument("--no-pin", action="store_true",
+                   help="disable pinned host memory (low-RAM safety; pinned alloc can "
+                        "deadlock when Windows is under memory pressure)")
     p.add_argument("--full", action="store_true")
     p.add_argument("--smoke", action="store_true")
     p.add_argument("--predict", action="store_true")

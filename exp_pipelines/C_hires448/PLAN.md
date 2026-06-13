@@ -5,12 +5,13 @@
 token，等效"视力"×4。位置编码由 timm 对官方权重做双三次插值，骨干权重
 不变，合规。
 
-**与基准 A 的差异**：方案 B 全部改动 + `--img-size 448`；单轮耗时约 3 倍，
-故只训 8 轮；batch 96（显存不够自动降 64）。
+**与基准 A 的差异**：方案 B 全部改动 + `--img-size 448`；单轮耗时约 2–3 倍，
+故只训 8 轮；batch 64（实测峰值显存 5.75GB；96 会超 8GB 物理显存溢出到
+共享内存导致巨慢）。
 
 **命令**：
 ```bash
-python finetune_lora.py --epochs 8 --num-workers 2 --batch-size 96 \
+python finetune_lora.py --epochs 8 --num-workers 2 --no-pin --batch-size 64 \
   --lora-target attn_mlp --ema-decay 0.999 --randaug --img-size 448 \
   --work-dir exp_pipelines/C_hires448 --cache-dir outputs/cache
 ```
