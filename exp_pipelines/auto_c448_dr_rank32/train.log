@@ -1,0 +1,21 @@
+kNN filter keeps 78765/103218 (76.31%)
+targets ready: 78865 usable samples (100 consensus pseudo-labelled)
+train images 78865  val images 10285
+trainable params: 5.10M
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+D:\04_Tools\Python\Lib\site-packages\PIL\TiffImagePlugin.py:949: UserWarning: Corrupt EXIF data.  Expecting to read 4 bytes but only got 2. 
+  warnings.warn(str(msg))
+epoch 01/8 loss=1.8153 time=608s  noisy_all=0.6793  low_lt03=0.3491  mid_03_06=0.8302  high_ge06=0.9879  *best*
+epoch 02/8 loss=1.5593 time=599s  noisy_all=0.7339  low_lt03=0.4406  mid_03_06=0.8825  high_ge06=0.9961  *best*
+epoch 03/8 loss=1.4139 time=596s  noisy_all=0.7573  low_lt03=0.4814  mid_03_06=0.9057  high_ge06=0.997  *best*
+D:\04_Tools\Python\Lib\site-packages\PIL\TiffImagePlugin.py:949: UserWarning: Corrupt EXIF data.  Expecting to read 4 bytes but only got 2. 
+  warnings.warn(str(msg))
+epoch 04/8 loss=1.3045 time=598s  noisy_all=0.7733  low_lt03=0.5125  mid_03_06=0.9169  high_ge06=0.997  *best*
+epoch 05/8 loss=1.2159 time=597s  noisy_all=0.7773  low_lt03=0.5197  mid_03_06=0.9229  high_ge06=0.9955  *best*
+epoch 06/8 loss=1.1488 time=600s  noisy_all=0.7809  low_lt03=0.5281  mid_03_06=0.9237  high_ge06=0.9952  *best*
+epoch 07/8 loss=1.1065 time=599s  noisy_all=0.7824  low_lt03=0.5309  mid_03_06=0.9237  high_ge06=0.9961
+epoch 08/8 loss=1.0865 time=599s  noisy_all=0.7806  low_lt03=0.5286  mid_03_06=0.9211  high_ge06=0.9955
+done
