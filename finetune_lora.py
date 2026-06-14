@@ -293,11 +293,16 @@ def train(args) -> None:
                 stale_epochs = 0
                 torch.save(checkpoint_payload(epoch, bands), ckpt_dir / "best.pt")
                 msg += "  *best*"
+                if args.snapshot_after > 0 and epoch >= args.snapshot_after:
+                    torch.save(checkpoint_payload(epoch, bands), ckpt_dir / f"best_ep{epoch:02d}.pt")
+                    msg += "  [snap]"
             else:
                 stale_epochs += 1
         print(msg, flush=True)
         history.append(entry)
         torch.save(checkpoint_payload(epoch), ckpt_dir / ("full.pt" if args.full else "last.pt"))
+        if args.save_every > 0 and epoch % args.save_every == 0:
+            torch.save(checkpoint_payload(epoch), ckpt_dir / f"ep{epoch:02d}.pt")
         with (ckpt_dir / "history.json").open("w", encoding="utf-8") as fp:
             json.dump(history, fp, indent=2)
         if val_loader is not None and args.early_stop_patience > 0 and stale_epochs >= args.early_stop_patience:
@@ -394,6 +399,10 @@ def parse_args():
     p.add_argument("--robust-loss", choices=("ce", "gce"), default="ce",
                    help="gce = Generalized Cross-Entropy, noise-robust")
     p.add_argument("--gce-q", type=float, default=0.7)
+    p.add_argument("--save-every", type=int, default=0,
+                   help="also snapshot ep<N>.pt every N epochs (periodic anchors)")
+    p.add_argument("--snapshot-after", type=int, default=0,
+                   help="val mode: snapshot best_ep<N>.pt on each new val-best after epoch N")
     p.add_argument("--lora-rank", type=int, default=16)
     p.add_argument("--lora-alpha", type=float, default=32.0)
     p.add_argument("--lora-dropout", type=float, default=0.05)
