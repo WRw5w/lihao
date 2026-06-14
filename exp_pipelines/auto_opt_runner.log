@@ -1,0 +1,5 @@
+[auto-opt] START c448_drecall :: --img-size 448 --batch-size 64 --keep-ratio 0.85 --pseudo-thresh 0.6 --pseudo-margin 0.05 --epochs 8
+warning: in the working copy of 'exp_pipelines/auto_c448_drecall/RESULT.md', LF will be replaced by CRLF the next time Git touches it
+remote: 
+[auto-opt] c448_drecall DONE mid=0.9184 -> pushed auto-opt/c448_drecall
+[auto-opt] START c512 :: --img-size 512 --batch-size 32 --epochs 8
