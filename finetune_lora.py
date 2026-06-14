@@ -259,8 +259,14 @@ def train(args) -> None:
             opt.zero_grad(set_to_none=True)
             with torch.autocast("cuda", dtype=torch.float16):
                 logits = model(images)
-                loss_vec = F.cross_entropy(
-                    logits, tb, reduction="none", label_smoothing=args.label_smoothing)
+                if args.robust_loss == "gce":
+                    # Generalized Cross-Entropy (Zhang & Sabuncu 2018): noise-robust,
+                    # L_q = (1 - p_y^q)/q; q->0 approaches CE, q=0.7 a common robust value.
+                    p_y = logits.softmax(1).gather(1, tb.unsqueeze(1)).squeeze(1).clamp_min(1e-6)
+                    loss_vec = (1.0 - p_y.pow(args.gce_q)) / args.gce_q
+                else:
+                    loss_vec = F.cross_entropy(
+                        logits, tb, reduction="none", label_smoothing=args.label_smoothing)
                 loss = (loss_vec * wb).sum() / wb.sum().clamp_min(1e-6)
             scaler.scale(loss).backward()
             scaler.unscale_(opt)
@@ -385,6 +391,9 @@ def parse_args():
     p.add_argument("--margin-power", type=float, default=0.5)
     p.add_argument("--teacher-epochs", type=int, default=20)
     p.add_argument("--label-smoothing", type=float, default=0.1)
+    p.add_argument("--robust-loss", choices=("ce", "gce"), default="ce",
+                   help="gce = Generalized Cross-Entropy, noise-robust")
+    p.add_argument("--gce-q", type=float, default=0.7)
     p.add_argument("--lora-rank", type=int, default=16)
     p.add_argument("--lora-alpha", type=float, default=32.0)
     p.add_argument("--lora-dropout", type=float, default=0.05)
