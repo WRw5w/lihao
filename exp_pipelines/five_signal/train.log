@@ -1,0 +1,22 @@
+kNN filter keeps 83401/103218 (80.80%)
+targets ready: 83485 usable samples (84 consensus pseudo-labelled)
+train images 83485  val images 10285
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+trainable params: 5.10M
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+D:\04_Tools\Python\Lib\site-packages\PIL\TiffImagePlugin.py:949: UserWarning: Corrupt EXIF data.  Expecting to read 4 bytes but only got 2. 
+  warnings.warn(str(msg))
+epoch 01/8 loss=1.8982 time=663s  noisy_all=0.7156  low_lt03=0.4104  mid_03_06=0.8657  high_ge06=0.9921  trusted=0.9972  *best*
+epoch 02/8 loss=1.6828 time=658s  noisy_all=0.753  low_lt03=0.4759  mid_03_06=0.9009  high_ge06=0.9949  trusted=0.9992  *best*
+epoch 03/8 loss=1.5241 time=666s  noisy_all=0.7726  low_lt03=0.5116  mid_03_06=0.9166  high_ge06=0.9964  trusted=1.0  *best*
+epoch 04/8 loss=1.3952 time=659s  noisy_all=0.7776  low_lt03=0.5204  mid_03_06=0.9237  high_ge06=0.9949  trusted=0.9996
+epoch 05/8 loss=1.2831 time=657s  noisy_all=0.7871  low_lt03=0.5432  mid_03_06=0.9222  high_ge06=0.9958  trusted=0.9996
+epoch 06/8 loss=1.1868 time=657s  noisy_all=0.7902  low_lt03=0.5481  mid_03_06=0.9267  high_ge06=0.9955  trusted=0.9996
+D:\04_Tools\Python\Lib\site-packages\PIL\TiffImagePlugin.py:949: UserWarning: Corrupt EXIF data.  Expecting to read 4 bytes but only got 2. 
+  warnings.warn(str(msg))
+epoch 07/8 loss=1.1261 time=653s  noisy_all=0.7896  low_lt03=0.5485  mid_03_06=0.9241  high_ge06=0.9952  trusted=0.9992
+epoch 08/8 loss=1.0990 time=659s  noisy_all=0.7896  low_lt03=0.5483  mid_03_06=0.9241  high_ge06=0.9955  trusted=0.9992
+done
