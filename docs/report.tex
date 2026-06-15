@@ -1,0 +1,198 @@
+% 编译：xelatex report.tex （ctexart 需 XeLaTeX）
+\documentclass[11pt]{ctexart}
+\usepackage[margin=2.3cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true,linkcolor=black,urlcolor=blue}
+
+\title{\bfseries 面向噪声标签数据的细粒度图像识别鲁棒微调\\[2pt]\large 技术方案报告（初赛）}
+\author{全球校园人工智能算法精英大赛 · 算法挑战赛}
+\date{\today}
+
+\newcommand{\kw}[1]{\textbf{#1}}
+
+\begin{document}
+\maketitle
+
+%==================================================
+\section{算法概述}
+本方案面向\kw{标签含噪}条件下的细粒度图像识别，在严格遵守赛题约束（骨干强制为 OpenAI
+CLIP ViT-B/32、单模型单推理、禁止集成、不宜全参数微调）的前提下，设计了一条
+\kw{“数据去噪—鲁棒微调—推理校正”}的完整流水线。核心思路是：先用冻结骨干的特征做
+\kw{kNN 邻域一致性去噪}与\kw{教师-kNN 共识伪标签}，把含噪训练集转化为带连续可靠性权重的
+干净化数据；再以\kw{参数高效的 LoRA 微调}（注入 attention+MLP、448 分辨率、EMA、强增强）
+适配下游任务，全程采用\kw{先划分再统计的严格验证协议}杜绝标签泄漏；最后在推理端引入
+\kw{多尺度 TTA} 与\kw{均衡先验 logit 校正}（利用“测试集类别均衡”这一已知事实），并用
+\kw{Uniform Model Soup}（同架构权重平均）进一步降方差。
+
+方案的主要特点是\kw{全自动、可复现、合规}：噪声筛选无人工清洗环节，关键超参经系统化
+对比实验选定。本地严格协议下，主指标（kNN 一致性中带准确率）从基线 0.878 提升至模型汤
+的 0.9267；线上整体 Top-1 准确率经多版迭代显著提升。方案对计算资源友好（8\,GB 显存可完成
+全流程），并具备跨阶段（复赛/半决赛长尾、更多类别）的可迁移结构。
+
+%==================================================
+\section{实现方案}
+
+\subsection{解题思路与总体流程}
+赛题的本质矛盾是：训练标签含大量噪声（错标、弱相关、难样本），而直接监督微调会让模型
+\kw{过拟合噪声、破坏 CLIP 预训练先验}。因此我们从“数据”和“模型”两个层面联合优化：
+\begin{enumerate}[leftmargin=2em,itemsep=2pt]
+  \item \kw{特征提取}：冻结 CLIP ViT-B/32，水平翻转 TTA 平均、L2 归一化，缓存全量特征；
+  \item \kw{噪声处理}：kNN 一致性打分 $\to$ 按类保留 $\to$ 教师头训练 $\to$ 共识伪标签回收 $\to$ 连续可靠性加权；
+  \item \kw{LoRA 微调}：在冻结骨干上注入低秩适配器，按可靠性加权的软目标训练；
+  \item \kw{推理}：多尺度 TTA + 均衡先验校正 + 模型汤，生成单模型单推理流程的预测。
+\end{enumerate}
+
+\subsection{数据集处理}
+\paragraph{数据概况。}初赛数据集含 500 个自然动植物细粒度类别、103\,218 张训练样本（含标签
+噪声）、24\,967 张测试样本（人工精确标注、\kw{类别均衡}）。部分图片存在文件截断，统一用
+\texttt{PIL} 的 \texttt{LOAD\_TRUNCATED\_IMAGES} 容错读取。
+
+\paragraph{噪声水平刻画。}以冻结特征做 kNN（$k=16$，余弦相似度）邻域一致性扫描，统计训练集
+噪声强度：一致性 $<0.3$ 的样本占 \kw{42.0\%}，$<0.5$ 占 59.1\%。结论：噪声水平高，但
+\kw{低一致 $\ne$ 必然错标}（细粒度难样本也会低），因此激进过滤有害，需用\kw{连续加权}而非硬删除。
+
+\paragraph{严格验证协议（防泄漏）。}先按类别分层划分训练/验证集（90/10，\texttt{seed=42}），
+\kw{所有标签驱动的统计（kNN、样本筛选、教师训练、伪标签）只使用训练分区}；验证样本只作为
+查询去检索训练图库，绝不参与教师训练或模型初始化。这修正了早期“划分前用全量标签筛选”导致
+的验证指标乐观偏差。
+
+\paragraph{kNN 一致性去噪。}对样本 $i$，在训练图库中取其 $k$ 近邻 $N_k(i)$，相似度加权的
+邻域标签一致性定义为
+\begin{equation}
+a_i \;=\; \frac{\sum_{j\in N_k(i)} w_{ij}\,\mathbb{1}[y_j=y_i]}{\sum_{j\in N_k(i)} w_{ij}},
+\qquad w_{ij}=\max(0,\;\cos(f_i,f_j)).
+\end{equation}
+按类保留一致性最高的 $\rho$ 比例（\kw{keep-ratio}，最终取 $\rho=0.90$）作为可信样本，并对
+一致性高于阈值的样本无条件保底，得到保留掩码。
+
+\paragraph{教师-kNN 共识伪标签。}在保留样本上训练一个余弦分类\kw{教师头}，得到每个样本的
+教师预测 $\hat y^{\text{T}}_i$、置信度 $p_i$ 与 margin $m_i$。对\kw{被丢弃}的样本，仅当
+\kw{教师预测与 kNN 多数投票一致}且置信度/ margin 双双达标时，才以该共识标签回收为伪标签，
+避免引入新噪声。
+
+\paragraph{连续可靠性加权。}保留样本不做等权监督，而是按三项乘积赋予连续权重：
+\begin{equation}
+r_i = a_i^{\alpha}\cdot p_i^{\beta}\cdot m_i^{\gamma},
+\qquad
+w_i = w_{\min} + (1-w_{\min})\,r_i,
+\end{equation}
+使“干净且容易”的样本主导梯度、“可疑”的样本被温和下调，兼顾召回与抗噪。
+
+\subsection{算法设计与开发}
+\paragraph{骨干与适配器。}骨干为冻结的 CLIP ViT-B/32（timm \texttt{vit\_base\_patch32\_clip\_224.openai}，
+OpenAI 官方权重）。在其 \kw{attention 与 MLP} 线性层注入 \kw{LoRA}（秩 $r=32$，$\alpha=64$），
+仅训练约 5.1\,M 参数（骨干 88\,M 全部冻结），既释放任务适配能力又抑制灾难性遗忘——符合赛题
+“不宜无约束全参数微调”的导向。
+
+\paragraph{高分辨率。}将输入提升到 \kw{448\,px}（CLIP ViT-B/32 在 224 下仅 49 个 patch token，
+448 下增至 196 token），对位置编码做双三次插值（\kw{官方权重本身不变，合规}）。对比实验表明
+448 是分辨率甜点（512 因 batch 受限+位置编码过度插值反而下降）。
+
+\paragraph{分类头与目标。}采用\kw{余弦分类头}（特征/权重归一化），训练目标为按可靠性加权的
+交叉熵；以\kw{紧凑整数目标}替代 $N\times C$ 稠密软标签矩阵以节省显存。亦实现了噪声鲁棒的
+\kw{广义交叉熵（GCE）} $L_q=(1-p_y^q)/q$ 作为可选损失。
+
+\subsection{模型训练与优化}
+训练采用 \kw{OneCycleLR}（总步数 $=$ 轮数 $\times$ 每轮步数）、混合精度、梯度裁剪、
+\kw{EMA}（衰减 0.999，用 EMA 权重做评估与推理）、\kw{RandAugment} 强增强（细粒度裁剪范围
+$0.8$–$1.0$）、早停与完整断点续训。最优配方：
+\begin{center}
+\texttt{LoRA(attn\_mlp, r32) + EMA0.999 + RandAug + 448px + keep0.90 + 共识伪标签(0.6/0.05)}
+\end{center}
+\paragraph{关于训练轮数（重要负结果）。}由于 OneCycle 的学习率轨迹随总轮数缩放，短训练的
+“早峰值”是\kw{调度假象}。我们专门做了 60 轮长调度诊断：噪声验证集整体准确率确在退火尾段
+（ep54）冲到更高，\kw{但线上榜分反而下降}——说明该提升源于\kw{记忆脏验证标签}，不迁移到
+干净测试集。\kw{结论：训练轮数不是杠杆}，全量重训取验证峰值轮（约 4 轮）即可。
+
+\subsection{推理与测试}
+\paragraph{多尺度 TTA。}单模型多视角投票：对 $\{448,512,576\}$ 三种尺度 $\times$ 水平翻转
+共 6 个视角的 logits 求平均（仍是单模型单推理流程，合规）。
+
+\paragraph{均衡先验校正（balanced）。}测试集\kw{类别均衡}（每类约 50 张）是赛题给定事实，而
+原始预测分布严重偏斜（某类被预测 195 次/应 $\approx$50）。我们拟合每类对数偏置 $b$，使
+$\mathrm{softmax}(z+b)$ 的类别边缘分布匹配均匀先验，再取 $\arg\max(z+b)$。该校正\kw{只用已知的
+均匀先验、不在测试数据上训练}，是合规且“免费”的增益——线上最大提分点即来自
+\kw{多尺度 TTA $+$ balanced} 的组合（记为 \texttt{tta\_balanced}）。
+
+\paragraph{Uniform Model Soup。}对同架构（r32/attn\_mlp/448）的多个微调权重做\kw{均匀平均}
+（$\theta_{\text{soup}}=\frac1N\sum_i\theta_i$），得到单一权重、单次前向，属合规的单模型技术
+（区别于被禁止的输出层集成）。在 15 个候选上取 top-10 平均，本地主指标由最优单模型 0.9256
+提升至 \kw{0.9267}；而\kw{贪心汤（Greedy Soup）}因逐个配对的近视性退化为单模型，不及均匀汤。
+
+\paragraph{提交与校验。}预测输出为 \texttt{pred\_results.csv}（图片名,四位类别号），压缩为 zip；
+自动校验文件名与测试集完全匹配、类别号合规，再行提交。
+
+%==================================================
+\section{算法创新点}
+\begin{enumerate}[leftmargin=2em,itemsep=2pt]
+  \item \kw{连续可靠性加权 $+$ 共识伪标签}：以 kNN 一致性 $\times$ 教师置信度 $\times$ margin
+        连续加权，配合“教师 $\cap$ kNN 多数票”的双重共识回收，兼顾召回与抗噪，优于硬阈值过滤。
+  \item \kw{严格无泄漏验证协议}：先划分再统计，使本地指标可信、可复现，避免选型偏差。
+  \item \kw{均衡先验 logit 校正}：将“测试集均衡”这一赛题事实转化为推理期合规增益，单刀显著提分。
+  \item \kw{合规的单模型“伪集成”}：用 SWA / Uniform Model Soup 在权重空间降方差，规避禁集成
+        红线，获得集成式收益。
+  \item \kw{系统化对比实验框架}：自动化串行跑候选配方、严格协议统一可比、结果自动汇总。
+\end{enumerate}
+
+%==================================================
+\section{问题与思考}
+\begin{enumerate}[leftmargin=2em,itemsep=2pt]
+  \item \kw{本地指标 $\ne$ 线上指标}：噪声验证集的整体准确率会因噪声记忆而虚高，与干净榜分
+        方向相反（60 轮实验即被其误导）。教训：\kw{以线上榜分为唯一判据}，本地指标仅作参考。
+  \item \kw{工程稳定性}：低系统内存下 DataLoader 锁页内存会僵死，全程加 \texttt{--no-pin} 规避；
+        8\,GB 显存下 448 高分辨率需控制 batch 防 OOM。
+  \item \kw{回报递减与方向取舍}：分辨率、数据召回、容量逐步叠加增益递减；及时排除无效方向
+        （512 分辨率、长训练），把算力投向高 ROI 的推理端杠杆与模型汤。
+  \item \kw{跨阶段泛化}：复赛/半决赛存在长尾与更多类别，均衡先验校正与可靠性加权需针对
+        非均匀/长尾分布做相应调整。
+\end{enumerate}
+
+%==================================================
+\section{过程进度}
+\begin{center}
+\begin{tabular}{@{}p{3.2cm}p{3.0cm}p{8.2cm}@{}}
+\toprule
+\kw{阶段} & \kw{时间} & \kw{主要内容} \\
+\midrule
+数据准备   & 第 1--2 天 & 特征提取与缓存、噪声水平扫描、严格验证协议搭建 \\
+算法设计   & 第 2--4 天 & kNN 去噪、共识伪标签、可靠性加权、LoRA 微调管线 \\
+训练与优化 & 第 4--7 天 & 多方案对比（分辨率/召回/容量/深度）、自动优化队列、最优配方选定 \\
+推理增强   & 第 6--8 天 & 多尺度 TTA、均衡先验校正、SWA / Model Soup \\
+测试与验证 & 全程       & 单元测试 + 数值回归门、提交格式校验、线上榜分校准 \\
+文档与提交 & 第 8--9 天 & 技术报告、可复现代码与运行说明整理 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+%==================================================
+\section{团队分工}
+\begin{center}
+\begin{tabular}{@{}p{3.2cm}p{3.0cm}p{8.2cm}@{}}
+\toprule
+\kw{成员} & \kw{角色} & \kw{负责内容} \\
+\midrule
+（成员 A） & 算法设计 & 去噪算法、可靠性加权、伪标签、损失设计 \\
+（成员 B） & 模型训练 & LoRA 微调、训练调优、对比实验、模型汤 \\
+（成员 C） & 数据/工程 & 数据处理、特征缓存、推理与提交、复现工程 \\
+（成员 D） & 文档撰写 & 技术报告、实验记录、结果汇总 \\
+\bottomrule
+\end{tabular}
+\end{center}
+\textit{（注：请按实际情况填写成员姓名与分工。）}
+
+%==================================================
+\section{解题参考资源}
+\begin{enumerate}[leftmargin=2em,itemsep=1pt]
+  \item A. Radford, et al. \textit{Learning Transferable Visual Models From Natural Language Supervision} (CLIP). ICML, 2021.
+  \item E. Hu, et al. \textit{LoRA: Low-Rank Adaptation of Large Language Models}. ICLR, 2022.
+  \item Z. Zhang, M. Sabuncu. \textit{Generalized Cross Entropy Loss for Training Deep Neural Networks with Noisy Labels}. NeurIPS, 2018.
+  \item M. Wortsman, et al. \textit{Model Soups: averaging weights of multiple fine-tuned models improves accuracy without increasing inference time}. ICML, 2022.
+  \item P. Izmailov, et al. \textit{Averaging Weights Leads to Wider Optima and Better Generalization} (SWA). UAI, 2018.
+  \item 近年关于噪声标签学习、鲁棒优化、样本筛选、表征一致性约束与灾难性遗忘抑制的代表性工作。
+\end{enumerate}
+
+\end{document}
