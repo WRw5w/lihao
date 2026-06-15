@@ -88,11 +88,27 @@ def prepare_targets(args, device, train_idx: torch.Tensor, val_idx: torch.Tensor
 
     target_labels = y.clone()
     weights = torch.zeros(y.numel(), dtype=torch.float32, device=device)
+    # Composite reliability score (kNN agreement x teacher confidence x margin,
+    # optionally x visual-class-prototype similarity x augmentation consistency).
     reliability = (
         agree[tr].clamp(0, 1).pow(args.agreement_power)
         * p_label[tr].clamp(0, 1).pow(args.confidence_power)
         * margins_t[tr].clamp(0, 1).pow(args.margin_power)
     )
+    if args.proto_power > 0:
+        # per-class visual prototype = centroid of kept samples; similarity is a
+        # global per-class signal complementing local kNN agreement.
+        ftr32 = f32[tr]
+        kept_pos = torch.nonzero(keep_tr, as_tuple=False).squeeze(1)
+        proto = torch.zeros(num_classes, ftr32.size(1), device=device)
+        proto.index_add_(0, ytr[kept_pos], ftr32[kept_pos])
+        cnt = torch.bincount(ytr[kept_pos], minlength=num_classes).clamp_min(1).unsqueeze(1)
+        proto = F.normalize(proto / cnt, dim=1)
+        proto_sim = (F.normalize(ftr32, dim=1) * proto[ytr]).sum(1).clamp(0, 1)
+        reliability = reliability * proto_sim.pow(args.proto_power)
+    if args.aug_consist_power > 0 and Path(args.aug_consist_path).exists():
+        ac = torch.load(args.aug_consist_path, map_location="cpu")["consistency"].to(device)
+        reliability = reliability * ac[tr].clamp(0, 1).pow(args.aug_consist_power)
     weights[tr[keep_tr]] = args.min_sample_weight + (1.0 - args.min_sample_weight) * reliability[keep_tr]
     pseudo_tr = (
         (~keep_tr)
@@ -111,7 +127,7 @@ def prepare_targets(args, device, train_idx: torch.Tensor, val_idx: torch.Tensor
         "target_labels": target_labels.cpu(), "weights": weights.cpu(), "labels": labels,
         "class_names": class_names, "image_names": image_names,
         "teacher_head_state": {k: v.cpu() for k, v in teacher.state_dict().items()},
-        "agree": agree.cpu(),
+        "agree": agree.cpu(), "teacher_preds": preds_t.cpu(),
         "target_stats": {
             "kept": int(keep.sum()), "pseudo": pseudo_count,
             "mean_kept_weight": round(float(weights[keep].mean()), 6),
@@ -120,7 +136,7 @@ def prepare_targets(args, device, train_idx: torch.Tensor, val_idx: torch.Tensor
 
 
 @torch.inference_mode()
-def evaluate_images(model, loader, labels_gpu, agree_gpu, device) -> dict:
+def evaluate_images(model, loader, labels_gpu, agree_gpu, device, trusted_mask=None) -> dict:
     model.eval()
     correct = torch.zeros_like(labels_gpu, dtype=torch.bool)
     for images, idx in loader:
@@ -134,6 +150,8 @@ def evaluate_images(model, loader, labels_gpu, agree_gpu, device) -> dict:
         "mid_03_06": (agree_gpu >= 0.3) & (agree_gpu < 0.6),
         "high_ge06": agree_gpu >= 0.6,
     }
+    if trusted_mask is not None:
+        bands["trusted"] = trusted_mask  # high-agreement & teacher-consensus subset
     return {k: round((correct & m).sum().item() / max(1, int(m.sum())), 4) for k, m in bands.items()}
 
 
@@ -168,6 +186,7 @@ def train(args) -> None:
     weights_all = prep["weights"].to(device)
     labels_all = prep["labels"].to(device)
     agree_all = prep["agree"].to(device)
+    teacher_preds_all = prep["teacher_preds"].to(device)
 
     base = ImageFolder(args.train_dir)
     paths = [p for p, _ in base.samples]
@@ -244,6 +263,13 @@ def train(args) -> None:
 
     va_labels = labels_all[va_idx.to(device)] if va_idx.numel() else None
     va_agree = agree_all[va_idx.to(device)] if va_idx.numel() else None
+    trusted_va = None
+    if args.trusted_agree > 0 and va_idx.numel():
+        # trustworthy mini-val: high kNN agreement AND teacher prediction == given
+        # label -> labels here are very likely correct, a cleaner proxy for the
+        # clean test set than the full noisy val.
+        tp_va = teacher_preds_all[va_idx.to(device)]
+        trusted_va = (va_agree >= args.trusted_agree) & (tp_va == va_labels)
     history = []
     best_mid = -1.0
     stale_epochs = 0
@@ -285,11 +311,12 @@ def train(args) -> None:
         entry = {"epoch": epoch, "loss": round(tot_loss / max(1, tot_seen), 4)}
         if val_loader is not None:
             bands = evaluate_images(ema_model if ema_model is not None else model,
-                                    val_loader, va_labels, va_agree, device)
+                                    val_loader, va_labels, va_agree, device, trusted_mask=trusted_va)
             entry.update(bands)
             msg += "  " + "  ".join(f"{k}={v}" for k, v in bands.items())
-            if bands["mid_03_06"] > best_mid:
-                best_mid = bands["mid_03_06"]
+            sel_key = "trusted" if "trusted" in bands else "mid_03_06"
+            if bands[sel_key] > best_mid:
+                best_mid = bands[sel_key]
                 stale_epochs = 0
                 torch.save(checkpoint_payload(epoch, bands), ckpt_dir / "best.pt")
                 msg += "  *best*"
@@ -394,6 +421,13 @@ def parse_args():
     p.add_argument("--agreement-power", type=float, default=1.0)
     p.add_argument("--confidence-power", type=float, default=0.5)
     p.add_argument("--margin-power", type=float, default=0.5)
+    p.add_argument("--proto-power", type=float, default=0.0,
+                   help="visual-class-prototype similarity factor in reliability (0=off)")
+    p.add_argument("--aug-consist-power", type=float, default=0.0,
+                   help="augmentation-consistency factor in reliability (0=off; needs aug-consist file)")
+    p.add_argument("--aug-consist-path", default="outputs/cache/aug_consistency.pt")
+    p.add_argument("--trusted-agree", type=float, default=0.0,
+                   help="val mode: build a trusted-val (agree>=t & teacher==label) and select best by it (0=off)")
     p.add_argument("--teacher-epochs", type=int, default=20)
     p.add_argument("--label-smoothing", type=float, default=0.1)
     p.add_argument("--robust-loss", choices=("ce", "gce"), default="ce",

@@ -99,6 +99,8 @@ def main():
     p.add_argument("--test-dir", default=str(config.TEST_DIR))
     p.add_argument("--out-prefix", required=True, help="writes <prefix>_tta.csv and <prefix>_tta_balanced.csv")
     p.add_argument("--scales", default="448,512,576")
+    p.add_argument("--balance-strength", type=float, default=1.0,
+                   help="0=no balancing, 1=full match to uniform prior (adjustable)")
     p.add_argument("--batch-size", type=int, default=128)
     p.add_argument("--num-workers", type=int, default=2)
     p.add_argument("--no-pin", action="store_true")
@@ -109,7 +111,7 @@ def main():
     c = len(class_names)
 
     tta = logits.argmax(1).numpy()
-    b = fit_uniform_bias(logits)
+    b = fit_uniform_bias(logits) * args.balance_strength
     tta_bal = (logits + b).argmax(1).numpy()
     print(f"tta          dist: {dist_stats(tta, c)}")
     print(f"tta_balanced dist: {dist_stats(tta_bal, c)}  (changed {int((tta != tta_bal).sum())})")
