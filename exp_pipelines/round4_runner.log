@@ -1,0 +1,40 @@
+[r4] === Part A: inference levers on champion ===
+[r4] A1 multi-view TTA (scales 448,512,576 x flip)
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+loaded outputs_full_c448_dr_rank32_keep90\lora\full.pt (epoch 4), img_size=448, scales=[448, 512, 576] x flip
+  scale 448 done
+  scale 512 done
+  scale 576 done
+tta          dist: min=3 max=202 std=19.7
+tta_balanced dist: min=46 max=55 std=1.4  (changed 4372)
+saved submissions\pred_results_c448_dr_rank32_keep90_tta.csv and submissions\pred_results_c448_dr_rank32_keep90_tta.zip
+saved submissions\pred_results_c448_dr_rank32_keep90_tta_balanced.csv and submissions\pred_results_c448_dr_rank32_keep90_tta_balanced.zip
+[r4] A2 balanced strength 0.5 (milder)
+loaded outputs_full_c448_dr_rank32_keep90\lora\full.pt (epoch 4), img_size=448
+plain    dist: min=4 max=195 std=19.1 >2x=10 <0.5x=26
+balanced dist: min=13 max=114 std=10.8 >2x=1 <0.5x=9  (strength=0.5)
+predictions changed by balancing: 2075/24967 (8.3%)
+saved submissions\pred_results_c448_dr_rank32_keep90_balanced_s05.csv and submissions\pred_results_c448_dr_rank32_keep90_balanced_s05.zip (24967 predictions)
+[r4] === Part B: GCE robust training (champion config + GCE q=0.7) ===
+[r4] B predict GCE model (plain + balanced)
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+loaded outputs_full_c448_gce\lora\full.pt (epoch 4)
+saved submissions\pred_results_c448_gce.csv and submissions\pred_results_c448_gce.zip (24967 predictions)
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+loaded outputs_full_c448_gce\lora\full.pt (epoch 4), img_size=448
+plain    dist: min=0 max=161 std=19.6 >2x=14 <0.5x=30
+balanced dist: min=43 max=55 std=1.5 >2x=0 <0.5x=0  (strength=1.0)
+predictions changed by balancing: 4541/24967 (18.2%)
+saved submissions\pred_results_c448_gce_balanced.csv and submissions\pred_results_c448_gce_balanced.zip (24967 predictions)
+[r4] === validate all new submissions ===
+--- pred_results_c448_dr_rank32_keep90_tta ---
+RESULT: PASS
+--- pred_results_c448_dr_rank32_keep90_tta_balanced ---
+RESULT: PASS
+--- pred_results_c448_dr_rank32_keep90_balanced_s05 ---
+RESULT: PASS
+--- pred_results_c448_gce ---
+RESULT: PASS
+--- pred_results_c448_gce_balanced ---
+RESULT: PASS
+[r4] ROUND4 QUEUE COMPLETE
