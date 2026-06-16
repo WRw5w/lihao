@@ -1,68 +1,62 @@
-# 打榜提交指南（给 codex）— 2026-06-16
+# 打榜提交指南（给 codex）— 2026-06-16 修正版
 
-**依据（已落地的真实榜分）**：
-- 满均衡(balance strength=1.0) 比无均衡 **+2.3 分**（5sig_full_v2: 75.66 vs 73.36，实测）。
-- 满 TTA(448/512/576) 比精简TTA(仅448) **+1.1 分**（实测）。
-- `soup_uniform`=**76.7** 是当前最优基准；5合一线已死（满推理也只 75.66 < 76.7）。
-- **结论：只交「满TTA(448/512/576)+满均衡(1.0)」的 `_tta_balanced` 强候选。**
+## 原则（重要修正）
+- **已验证的只是"推理配方"**：满均衡(strength 1.0) 比无均衡 **+2.3 分**、满 TTA(448/512/576) 比精简TTA **+1.1 分**（实测）。→ 推理一律用「满 TTA + 满均衡」。
+- **"模型/策略之间谁更强"还没验证**：除了 5合一(75.66) 和 soup_uniform(76.7)，**其他策略都没上过榜**。第一轮是**广度搜索**：尽量多测不同策略，每策略 **2 个 seed**（消除训练方差）。
+- ⚠️ 不要臆断"soup 一定 > 单模型"——那些都要实测。
+
+## 15 发广度分配（今晚→明天中午）
+推理固定满TTA+满均衡，只变策略；每个单模型策略跑 2 个 seed：
+
+| 策略 | 发数 | 说明 |
+|---|---|---|
+| soup_uniform | 1 | 76.7 基准复核 |
+| 单冠军 LoRA(rank32/keep0.90/CE) | 2 | seed42+seed1 |
+| GCE 鲁棒损失 | 2 | seed42+seed1 |
+| conservative(加权和+软伪标签) | 2 | seed42+seed1 |
+| keep0.85（弱召回） | 2 | seed42+seed1 |
+| keep0.95（强召回） | 2 | seed42+seed1 |
+| soup_v2 / soup_v3（多样化汤） | 2 | 各1 |
+| 5合一 | 1 | 75.66 复核 |
+| 备用 | 1 | |
 
 ---
 
-## ✅ 该交（按优先级，每小时额度只花这里）
-- `pred_results_soup_v3_tta_balanced.zip`   ← Phase1 多样化大汤（生成后最看好，未上榜）
-- `pred_results_soup_v2_tta_balanced.zip`   ← 多样化汤（未上榜）
-- `pred_results_conservative_tta_balanced.zip` ← 李洋保守化模型（未上榜）
-- `pred_results_swa_champion_tta_balanced.zip` ← 满数据 SWA（未上榜）
-- `pred_results_soup_uniform_tta_balanced.zip` ← =76.7 基准（已知，可复核）
-- `pred_results_c448_gce_balanced.zip`      ← GCE 模型（唯一未测的独立模型；注：单尺度推理非最优，仅供参考）
+## ✅ 现在就能交的广度候选（满推理、不同策略，已就绪）
+codex 可立即从这些开交（每个不同策略 = 一条独立信息）：
+- `pred_results_soup_uniform_tta_balanced.zip`     # soup（=76.7 基准）
+- `pred_results_soup_v2_tta_balanced.zip`          # 多样化汤
+- `pred_results_conservative_tta_balanced.zip`     # 李洋保守化（加权和+软伪标签）
+- `pred_results_swa_champion_tta_balanced.zip`     # 满数据 SWA
+- `pred_results_c448_dr_rank32_keep90_tta_balanced.zip`  # 单冠军模型（之前误判skip，实为待测策略）
+- `pred_results_soup_greedy_tta_balanced.zip`      # 贪心汤（不同融合策略）
+
+## ⏳ 我会补生成的广度候选（凑齐 15 发）
+- `soup_v3`（Phase1 多样化大汤，跑完自动 push）
+- GCE 满TTA版（现有 gce 只有单尺度，要重出满TTA）
+- keep0.85 / keep0.95 的满推理版
+- 上述单模型策略的 **seed1 第二份**（补训）
 
 ---
 
-## ❌ 别交（确认/几乎确认更差，浪费每小时额度）
-
-### 1) 无均衡版（文件名 `_tta` 不带 `_balanced`）—— 实测 −2.3 分，确认更差
-pred_results_c448_dr_rank32_keep90_tta.zip
-pred_results_run60_ep60_tta.zip
-pred_results_swa_run60_tta.zip
-pred_results_swa_champion_tta.zip
-pred_results_soup_uniform_tta.zip
-pred_results_soup_greedy_tta.zip
-pred_results_5sig_tta.zip
-pred_results_5sig_ep8_tta.zip
-pred_results_5sig_full_tta.zip
-pred_results_5sig_full_v2_tta.zip
-pred_results_soup_sweep_tta.zip
-pred_results_conservative_tta.zip
-pred_results_soup_v2_tta.zip
-
-### 2) 5合一系（精简TTA+弱均衡，被 full_v2 的 75.66 碾压，且5合一线已死）
+## ❌ 确认更差·别交（仅"推理降级/旧基线"，不含任何待测的不同模型）
+### 无均衡 `_tta`（缺 balance，实测 −2.3 分）—— 全部跳过
+pred_results_*_tta.zip（所有不带 `_balanced` 的：c448_dr_rank32_keep90_tta / run60_ep60_tta / swa_run60_tta / swa_champion_tta / soup_uniform_tta / soup_greedy_tta / 5sig_tta / 5sig_ep8_tta / 5sig_full_tta / 5sig_full_v2_tta / soup_sweep_tta / conservative_tta / soup_v2_tta）
+### 5合一精简/弱均衡变体（已上榜或被 full_v2 75.66 支配）
 pred_results_5sig_tta_balanced.zip
-pred_results_5sig_ep8_tta_balanced.zip          # 已上榜=73.56
-pred_results_5sig_full_tta_balanced.zip         # 已上榜=74.23
-pred_results_5sig_full_v2_tta_balanced.zip      # 已上榜=75.66（无需重交）
+pred_results_5sig_ep8_tta_balanced.zip        # 已上榜 73.56
+pred_results_5sig_full_tta_balanced.zip       # 已上榜 74.23
+pred_results_5sig_full_v2_tta.zip             # 已上榜 73.36
+### 旧基线 / 单尺度推理（被满推理同模型支配）
+pred_results.zip / pred_results_head.zip / pred_results_lora.zip   # 旧版(~61)
+pred_results_c448_dr_rank32_keep90.zip               # 单冠军的"基础推理"（无均衡）→ 用上面 `_tta_balanced` 版代替
+pred_results_c448_dr_rank32_keep90_balanced.zip      # 单尺度+均衡（−1.1 vs 多尺度）
+pred_results_c448_dr_rank32_keep90_balanced_s05.zip  # 单尺度+弱均衡
+### balance λ<1（~90% 更差，非100%；有富余只试 s0.75）
+pred_results_soup_sweep_tta_balanced_s0.25.zip / s0.5 / s0.75
 
-### 3) 旧/基线/单尺度推理（都被满推理碾压，确认更差）
-pred_results.zip                                  # 旧交错文件(~61)
-pred_results_head.zip                             # 旧头部基线
-pred_results_lora.zip                             # 旧 v2 LoRA
-pred_results_c448.zip                             # 基础推理(flip-only,无均衡)
-pred_results_c448_drecall.zip
-pred_results_c448_gce.zip
-pred_results_c448_dr_rank32_keep90.zip            # 基础推理,无均衡
-pred_results_c448_dr_rank32_keep90_balanced.zip   # 单尺度+均衡(−1.1 vs 多尺度)
-pred_results_c448_dr_rank32_keep90_balanced_s05.zip
-pred_results_c448_dr_rank32_keep90_tta_balanced.zip  # 单模型满推理,被 soup(76.7) 碾压
-
-### 4) 弱模型的满推理版（已知/极可能 <76.7）
-pred_results_run60_ep60_tta_balanced.zip    # 90/10 单轮,弱
-pred_results_swa_run60_tta_balanced.zip     # 欠佳 run60 的 SWA
-pred_results_soup_greedy_tta_balanced.zip   # =单模型,被 uniform 汤碾压
-
-### 5) balance λ<1（很可能 <λ=1 的 76.7；~90% 确信，非 100% 直接验证）
-pred_results_soup_sweep_tta_balanced_s0.25.zip
-pred_results_soup_sweep_tta_balanced_s0.5.zip
-pred_results_soup_sweep_tta_balanced_s0.75.zip
+## 🟡 可选低优先（更弱模型/旧模型，时间够再测）
+c448 / drecall / run60_ep60 / swa_run60 等——单模型且偏弱，要测得先重出满推理版；优先级低于上面 6 个。
 
 ---
-
-**确定性说明**：第 1/2/3 组是**确认更差**（直接榜分证据或被同模型更优推理完全支配）；第 4 组弱模型大概率更差；第 5 组 λ<1 是 ~90% 确信（无直接 soup-λ A/B，若有富余额度可只试 s0.75）。
+**一句话**：推理降级版安全跳过；**所有不同的"模型/策略"都进广度测、不臆断**；每策略 2 seed 看稳定性。
