@@ -99,8 +99,8 @@ def main():
     p.add_argument("--test-dir", default=str(config.TEST_DIR))
     p.add_argument("--out-prefix", required=True, help="writes <prefix>_tta.csv and <prefix>_tta_balanced.csv")
     p.add_argument("--scales", default="448,512,576")
-    p.add_argument("--balance-strength", type=float, default=1.0,
-                   help="0=no balancing, 1=full match to uniform prior (adjustable)")
+    p.add_argument("--balance-strength", default="1.0",
+                   help="comma-separated strengths to emit (e.g. 0.25,0.5,0.75,1.0); 0=none, 1=full uniform")
     p.add_argument("--batch-size", type=int, default=128)
     p.add_argument("--num-workers", type=int, default=2)
     p.add_argument("--no-pin", action="store_true")
@@ -111,12 +111,16 @@ def main():
     c = len(class_names)
 
     tta = logits.argmax(1).numpy()
-    b = fit_uniform_bias(logits) * args.balance_strength
-    tta_bal = (logits + b).argmax(1).numpy()
+    b = fit_uniform_bias(logits)
+    strengths = [float(x) for x in str(args.balance_strength).split(",")]
     print(f"tta          dist: {dist_stats(tta, c)}")
-    print(f"tta_balanced dist: {dist_stats(tta_bal, c)}  (changed {int((tta != tta_bal).sum())})")
-
-    for tag, preds in [("tta", tta), ("tta_balanced", tta_bal)]:
+    outputs = [("tta", tta)]
+    for lam in strengths:
+        bal = (logits + lam * b).argmax(1).numpy()
+        tag = "tta_balanced" if len(strengths) == 1 else f"tta_balanced_s{lam:g}"
+        print(f"{tag:18s} dist: {dist_stats(bal, c)}  (changed {int((tta != bal).sum())})")
+        outputs.append((tag, bal))
+    for tag, preds in outputs:
         out_csv = Path(f"{args.out_prefix}_{tag}.csv")
         save_predictions(out_csv, names, preds.tolist(), class_names)
         z = zip_submission(out_csv)

@@ -1,0 +1,19 @@
+=== 验证集 10285 样本，各定义大小 ===
+  noisy_all   : 10285 (100.0%)
+  clean_knn   :  6467 (62.9%)
+  clean_hard  :  2368 (23.0%)
+  mid_03_06   :  2673 (26.0%)
+  easy_ge07   :  2471 (24.0%)
+  -> Pseudo-clean 剔除了 3818 个'邻居不认'的疑似错标 (37.1%)
+
+checkpoint                         noisy_all   clean_knn  clean_hard   mid_03_06   easy_ge07
+--------------------------------------------------------------------------------------------
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+auto_dr_rank32_keep90(champ90/10)      0.7807      0.9565      0.9459      0.9244      0.9984
+5sig_best(ep3)                        0.7726      0.9524      0.9396      0.9166      1.0000
+5sig_last(ep8)                        0.7896      0.9575      0.9464      0.9241      0.9988
+run60_ep30                            0.7907      0.9601      0.9489      0.9256      0.9976
+run60_ep60                            0.7934      0.9586      0.9464      0.9207      0.9976
+auto_drecall(rank16)                  0.7732      0.9527      0.9413      0.9184      0.9980
+
+CLEAN VAL DONE

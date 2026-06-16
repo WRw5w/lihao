@@ -88,13 +88,14 @@ def prepare_targets(args, device, train_idx: torch.Tensor, val_idx: torch.Tensor
 
     target_labels = y.clone()
     weights = torch.zeros(y.numel(), dtype=torch.float32, device=device)
-    # Composite reliability score (kNN agreement x teacher confidence x margin,
-    # optionally x visual-class-prototype similarity x augmentation consistency).
-    reliability = (
-        agree[tr].clamp(0, 1).pow(args.agreement_power)
-        * p_label[tr].clamp(0, 1).pow(args.confidence_power)
-        * margins_t[tr].clamp(0, 1).pow(args.margin_power)
-    )
+    # Composite reliability signals: (signal, weight). Combined either by product
+    # (mul, aggressive: any low factor -> ~0 weight) or weighted average (sum,
+    # conservative: no single factor can zero a sample out).
+    sig_terms = [
+        (agree[tr].clamp(0, 1), args.agreement_power),
+        (p_label[tr].clamp(0, 1), args.confidence_power),
+        (margins_t[tr].clamp(0, 1), args.margin_power),
+    ]
     if args.proto_power > 0:
         # per-class visual prototype = centroid of kept samples; similarity is a
         # global per-class signal complementing local kNN agreement.
@@ -105,10 +106,18 @@ def prepare_targets(args, device, train_idx: torch.Tensor, val_idx: torch.Tensor
         cnt = torch.bincount(ytr[kept_pos], minlength=num_classes).clamp_min(1).unsqueeze(1)
         proto = F.normalize(proto / cnt, dim=1)
         proto_sim = (F.normalize(ftr32, dim=1) * proto[ytr]).sum(1).clamp(0, 1)
-        reliability = reliability * proto_sim.pow(args.proto_power)
+        sig_terms.append((proto_sim, args.proto_power))
     if args.aug_consist_power > 0 and Path(args.aug_consist_path).exists():
         ac = torch.load(args.aug_consist_path, map_location="cpu")["consistency"].to(device)
-        reliability = reliability * ac[tr].clamp(0, 1).pow(args.aug_consist_power)
+        sig_terms.append((ac[tr].clamp(0, 1), args.aug_consist_power))
+    if args.reliability_mode == "sum":
+        num = sum(w * s for s, w in sig_terms)
+        den = sum(w for _, w in sig_terms)
+        reliability = (num / max(den, 1e-6)).clamp(0, 1)
+    else:
+        reliability = torch.ones(tr.numel(), device=device)
+        for s, w in sig_terms:
+            reliability = reliability * s.pow(w)
     weights[tr[keep_tr]] = args.min_sample_weight + (1.0 - args.min_sample_weight) * reliability[keep_tr]
     pseudo_tr = (
         (~keep_tr)
@@ -116,10 +125,14 @@ def prepare_targets(args, device, train_idx: torch.Tensor, val_idx: torch.Tensor
         & (pmax_t[tr] >= args.pseudo_thresh)
         & (margins_t[tr] >= args.pseudo_margin)
     )
+    soft_alpha = torch.zeros(y.numel(), dtype=torch.float32, device=device)
     if pseudo_tr.any():
         pseudo_idx = tr[pseudo_tr]
         target_labels[pseudo_idx] = preds_t[pseudo_idx]
         weights[pseudo_idx] = pmax_t[pseudo_idx] * margins_t[pseudo_idx].sqrt()
+        # soft fusion: keep alpha of the original label instead of hard-replacing
+        # (conservative: don't fully trust the pseudo-label).
+        soft_alpha[pseudo_idx] = args.pseudo_soft_alpha
     pseudo_count = int(pseudo_tr.sum())
     print(f"targets ready: {int((weights > 0).sum())} usable samples "
           f"({pseudo_count} consensus pseudo-labelled)")
@@ -127,7 +140,7 @@ def prepare_targets(args, device, train_idx: torch.Tensor, val_idx: torch.Tensor
         "target_labels": target_labels.cpu(), "weights": weights.cpu(), "labels": labels,
         "class_names": class_names, "image_names": image_names,
         "teacher_head_state": {k: v.cpu() for k, v in teacher.state_dict().items()},
-        "agree": agree.cpu(), "teacher_preds": preds_t.cpu(),
+        "agree": agree.cpu(), "teacher_preds": preds_t.cpu(), "soft_alpha": soft_alpha.cpu(),
         "target_stats": {
             "kept": int(keep.sum()), "pseudo": pseudo_count,
             "mean_kept_weight": round(float(weights[keep].mean()), 6),
@@ -187,6 +200,7 @@ def train(args) -> None:
     labels_all = prep["labels"].to(device)
     agree_all = prep["agree"].to(device)
     teacher_preds_all = prep["teacher_preds"].to(device)
+    soft_alpha_all = prep["soft_alpha"].to(device)
 
     base = ImageFolder(args.train_dir)
     paths = [p for p, _ in base.samples]
@@ -293,6 +307,11 @@ def train(args) -> None:
                 else:
                     loss_vec = F.cross_entropy(
                         logits, tb, reduction="none", label_smoothing=args.label_smoothing)
+                    if args.pseudo_soft_alpha > 0:
+                        ab = soft_alpha_all[gidx]
+                        ce_orig = F.cross_entropy(
+                            logits, labels_all[gidx], reduction="none", label_smoothing=args.label_smoothing)
+                        loss_vec = (1.0 - ab) * loss_vec + ab * ce_orig
                 loss = (loss_vec * wb).sum() / wb.sum().clamp_min(1e-6)
             scaler.scale(loss).backward()
             scaler.unscale_(opt)
@@ -428,6 +447,10 @@ def parse_args():
     p.add_argument("--aug-consist-path", default="outputs/cache/aug_consistency.pt")
     p.add_argument("--trusted-agree", type=float, default=0.0,
                    help="val mode: build a trusted-val (agree>=t & teacher==label) and select best by it (0=off)")
+    p.add_argument("--reliability-mode", choices=("mul", "sum"), default="mul",
+                   help="combine reliability signals by product (aggressive) or weighted avg (sum=conservative)")
+    p.add_argument("--pseudo-soft-alpha", type=float, default=0.0,
+                   help="soft pseudo-label: keep this fraction of the original label vs hard-replace (conservative)")
     p.add_argument("--teacher-epochs", type=int, default=20)
     p.add_argument("--label-smoothing", type=float, default=0.1)
     p.add_argument("--robust-loss", choices=("ce", "gce"), default="ce",
