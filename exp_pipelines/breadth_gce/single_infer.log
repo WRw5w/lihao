@@ -1,0 +1,9 @@
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+loaded exp_pipelines\breadth_gce\lora\full.pt (epoch 7), img_size=448, scales=[448, 512, 576] x flip
+  scale 448 done
+  scale 512 done
+  scale 576 done
+tta          dist: min=4 max=160 std=21.2
+tta_balanced       dist: min=43 max=58 std=2.1  (changed 4647)
+saved submissions\pred_results_c448_gce_tta.csv and submissions\pred_results_c448_gce_tta.zip
+saved submissions\pred_results_c448_gce_tta_balanced.csv and submissions\pred_results_c448_gce_tta_balanced.zip

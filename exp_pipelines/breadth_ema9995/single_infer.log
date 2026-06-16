@@ -1,0 +1,9 @@
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+loaded exp_pipelines\breadth_ema9995\lora\full.pt (epoch 6), img_size=448, scales=[448, 512, 576] x flip
+  scale 448 done
+  scale 512 done
+  scale 576 done
+tta          dist: min=0 max=160 std=19.0
+tta_balanced       dist: min=45 max=56 std=1.3  (changed 4213)
+saved submissions\pred_results_ema9995_tta.csv and submissions\pred_results_ema9995_tta.zip
+saved submissions\pred_results_ema9995_tta_balanced.csv and submissions\pred_results_ema9995_tta_balanced.zip

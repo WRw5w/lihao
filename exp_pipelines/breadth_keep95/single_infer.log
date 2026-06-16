@@ -1,0 +1,8 @@
+loaded exp_pipelines\breadth_keep95\lora\full.pt (epoch 6), img_size=448, scales=[448, 512, 576] x flip
+  scale 448 done
+  scale 512 done
+  scale 576 done
+tta          dist: min=3 max=193 std=19.0
+tta_balanced       dist: min=45 max=55 std=1.3  (changed 4093)
+saved submissions\pred_results_keep95_tta.csv and submissions\pred_results_keep95_tta.zip
+saved submissions\pred_results_keep95_tta_balanced.csv and submissions\pred_results_keep95_tta_balanced.zip

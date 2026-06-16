@@ -1,0 +1,31 @@
+[single] START gce :: exp_pipelines/breadth_gce -> submissions/pred_results_c448_gce
+[single gce] OK   zip contains exactly pred_results.csv
+[single gce] OK   all 24967 class ids are 4-digit and within 0000..0499
+[single gce] OK   filenames exactly match test dir (24967 files)
+[single gce] RESULT: PASS
+[single] START keep85 :: exp_pipelines/breadth_keep85 -> submissions/pred_results_keep85
+[single keep85] OK   zip contains exactly pred_results.csv
+[single keep85] OK   all 24967 class ids are 4-digit and within 0000..0499
+[single keep85] OK   filenames exactly match test dir (24967 files)
+[single keep85] RESULT: PASS
+[single] START keep95 :: exp_pipelines/breadth_keep95 -> submissions/pred_results_keep95
+[single keep95] OK   zip contains exactly pred_results.csv
+[single keep95] OK   all 24967 class ids are 4-digit and within 0000..0499
+[single keep95] OK   filenames exactly match test dir (24967 files)
+[single keep95] RESULT: PASS
+[single] START aug06 :: exp_pipelines/breadth_aug06 -> submissions/pred_results_aug06
+[single aug06] OK   zip contains exactly pred_results.csv
+[single aug06] OK   all 24967 class ids are 4-digit and within 0000..0499
+[single aug06] OK   filenames exactly match test dir (24967 files)
+[single aug06] RESULT: PASS
+[single] START ema9995 :: exp_pipelines/breadth_ema9995 -> submissions/pred_results_ema9995
+[single ema9995] OK   zip contains exactly pred_results.csv
+[single ema9995] OK   all 24967 class ids are 4-digit and within 0000..0499
+[single ema9995] OK   filenames exactly match test dir (24967 files)
+[single ema9995] RESULT: PASS
+[single] START drecall :: exp_pipelines/auto_c448_drecall -> submissions/pred_results_drecall
+[single drecall] OK   zip contains exactly pred_results.csv
+[single drecall] OK   all 24967 class ids are 4-digit and within 0000..0499
+[single drecall] OK   filenames exactly match test dir (24967 files)
+[single drecall] RESULT: PASS
+[single] SINGLE CANDIDATES DONE
