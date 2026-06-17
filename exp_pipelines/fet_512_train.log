@@ -1,0 +1,35 @@
+kNN filter keeps 83401/103218 (80.80%)
+[iter-relabel] model preds from fet_preds_r2.pt: mean_conf=0.952, would recover 2108 discarded (linear-teacher recovered ~84)
+targets ready: 85509 usable samples (2108 pseudo-labelled)
+ELR on: lambda=1.0 beta=0.7 buffer=(103218, 500) (206MB)
+train images 85509  val images 10285
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+trainable params: 18.32M
+D:\02_Projects\ML\jinyinsai\finetune_fet.py:412: UserWarning: Detected call of `lr_scheduler.step()` before `optimizer.step()`. In PyTorch 1.1.0 and later, you should call them in the opposite order: `optimizer.step()` before `lr_scheduler.step()`.  Failure to do this will result in PyTorch skipping the first value of the learning rate schedule. See more details at https://pytorch.org/docs/stable/optim.html#how-to-adjust-learning-rate
+  sched.step()
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+D:\04_Tools\Python\Lib\site-packages\PIL\TiffImagePlugin.py:949: UserWarning: Corrupt EXIF data.  Expecting to read 4 bytes but only got 2. 
+  warnings.warn(str(msg))
+epoch 01/8 loss=3.7792 time=937s  noisy_all=0.6936  low_lt03=0.3735  mid_03_06=0.8466  high_ge06=0.9873  *best*
+D:\04_Tools\Python\Lib\site-packages\PIL\TiffImagePlugin.py:949: UserWarning: Corrupt EXIF data.  Expecting to read 4 bytes but only got 2. 
+  warnings.warn(str(msg))
+epoch 02/8 loss=3.3413 time=927s  noisy_all=0.7319  low_lt03=0.4352  mid_03_06=0.8837  high_ge06=0.9961  *best*
+epoch 03/8 loss=2.9082 time=933s  noisy_all=0.7474  low_lt03=0.4578  mid_03_06=0.9087  high_ge06=0.9946  *best*
+epoch 04/8 loss=2.5074 time=927s  noisy_all=0.7635  low_lt03=0.4891  mid_03_06=0.9192  high_ge06=0.9955  *best*  [snap]
+epoch 05/8 loss=2.1134 time=930s  noisy_all=0.7712  low_lt03=0.5037  mid_03_06=0.9252  high_ge06=0.9955  *best*  [snap]
+epoch 06/8 loss=1.7209 time=927s  noisy_all=0.7789  low_lt03=0.5218  mid_03_06=0.9244  high_ge06=0.9964
+epoch 07/8 loss=1.3879 time=930s  noisy_all=0.7817  low_lt03=0.5272  mid_03_06=0.927  high_ge06=0.9961  *best*  [snap]
+epoch 08/8 loss=1.1165 time=928s  noisy_all=0.781  low_lt03=0.5246  mid_03_06=0.9293  high_ge06=0.9955  *best*  [snap]
+done
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+loaded outputs_fet_512\lora\best.pt (epoch 8), img_size=512, scales=[512, 576, 640] x flip
+  scale 512 done
+  scale 576 done
+  scale 640 done
+tta          dist: min=4 max=204 std=19.6
+tta_balanced       dist: min=44 max=54 std=1.2  (changed 4156)
+saved submissions\pred_results_fet_512_tta.csv and submissions\pred_results_fet_512_tta.zip
+saved submissions\pred_results_fet_512_tta_balanced.csv and submissions\pred_results_fet_512_tta_balanced.zip
