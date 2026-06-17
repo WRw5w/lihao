@@ -1,0 +1,11 @@
+souped 5 checkpoints -> outputs_fet_soup\lora\full.pt
+  sources: best.pt, best_ep07.pt, best.pt, best_ep06.pt, best.pt
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+loaded outputs_fet_soup\lora\full.pt (epoch swa), img_size=448, scales=[448, 512, 576] x flip
+  scale 448 done
+  scale 512 done
+  scale 576 done
+tta          dist: min=4 max=156 std=19.0
+tta_balanced       dist: min=46 max=54 std=1.2  (changed 4170)
+saved submissions\pred_results_fet_soup_tta.csv and submissions\pred_results_fet_soup_tta.zip
+saved submissions\pred_results_fet_soup_tta_balanced.csv and submissions\pred_results_fet_soup_tta_balanced.zip
