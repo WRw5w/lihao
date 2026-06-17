@@ -1,0 +1,60 @@
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+loaded outputs_fet_iter1\lora\best.pt (epoch 8); predicting 103218 train imgs
+D:\04_Tools\Python\Lib\site-packages\PIL\TiffImagePlugin.py:949: UserWarning: Corrupt EXIF data.  Expecting to read 4 bytes but only got 2. 
+  warnings.warn(str(msg))
+  6400/103218
+  12800/103218
+  19200/103218
+  25600/103218
+  32000/103218
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+  38400/103218
+  44800/103218
+  51200/103218
+  57600/103218
+  64000/103218
+  70400/103218
+  76800/103218
+  83200/103218
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+  89600/103218
+  96000/103218
+  102400/103218
+saved outputs/cache/fet_preds_r2.pt  probs(103218, 500)  mean_conf=0.952 p90_conf=1.000
+kNN filter keeps 83401/103218 (80.80%)
+[iter-relabel] model preds from fet_preds_r2.pt: mean_conf=0.952, would recover 2108 discarded (linear-teacher recovered ~84)
+targets ready: 85509 usable samples (2108 pseudo-labelled)
+ELR on: lambda=1.0 beta=0.7 buffer=(103218, 500) (206MB)
+train images 85509  val images 10285
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+trainable params: 17.58M
+D:\02_Projects\ML\jinyinsai\finetune_fet.py:412: UserWarning: Detected call of `lr_scheduler.step()` before `optimizer.step()`. In PyTorch 1.1.0 and later, you should call them in the opposite order: `optimizer.step()` before `lr_scheduler.step()`.  Failure to do this will result in PyTorch skipping the first value of the learning rate schedule. See more details at https://pytorch.org/docs/stable/optim.html#how-to-adjust-learning-rate
+  sched.step()
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+D:\04_Tools\Python\Lib\site-packages\PIL\TiffImagePlugin.py:949: UserWarning: Corrupt EXIF data.  Expecting to read 4 bytes but only got 2. 
+  warnings.warn(str(msg))
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+epoch 01/8 loss=3.7663 time=827s  noisy_all=0.6882  low_lt03=0.3644  mid_03_06=0.8388  high_ge06=0.9885  *best*
+epoch 02/8 loss=3.3402 time=814s  noisy_all=0.7249  low_lt03=0.4264  mid_03_06=0.8743  high_ge06=0.9933  *best*
+D:\04_Tools\Python\Lib\site-packages\PIL\TiffImagePlugin.py:949: UserWarning: Corrupt EXIF data.  Expecting to read 4 bytes but only got 2. 
+  warnings.warn(str(msg))
+epoch 03/8 loss=2.8959 time=751s  noisy_all=0.7452  low_lt03=0.4566  mid_03_06=0.9001  high_ge06=0.9961  *best*
+epoch 04/8 loss=2.5083 time=712s  noisy_all=0.7605  low_lt03=0.4872  mid_03_06=0.9121  high_ge06=0.9942  *best*  [snap]
+epoch 05/8 loss=2.1238 time=720s  noisy_all=0.7724  low_lt03=0.5086  mid_03_06=0.9218  high_ge06=0.9955  *best*  [snap]
+epoch 06/8 loss=1.7466 time=717s  noisy_all=0.7778  low_lt03=0.5188  mid_03_06=0.9252  high_ge06=0.9964  *best*  [snap]
+epoch 07/8 loss=1.4296 time=714s  noisy_all=0.779  low_lt03=0.5197  mid_03_06=0.9289  high_ge06=0.9958  *best*  [snap]
+epoch 08/8 loss=1.1770 time=710s  noisy_all=0.7811  low_lt03=0.5251  mid_03_06=0.9285  high_ge06=0.9958
+done
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+loaded outputs_fet_iter2\lora\best.pt (epoch 7), img_size=448, scales=[448, 512, 576] x flip
+  scale 448 done
+  scale 512 done
+  scale 576 done
+tta          dist: min=3 max=187 std=20.0
+tta_balanced       dist: min=44 max=54 std=1.2  (changed 4326)
+saved submissions\pred_results_fet_iter2_tta.csv and submissions\pred_results_fet_iter2_tta.zip
+saved submissions\pred_results_fet_iter2_tta_balanced.csv and submissions\pred_results_fet_iter2_tta_balanced.zip
