@@ -30,9 +30,11 @@
 
 | 顺序 | 文件 | val mid | 目的 |
 |---:|---|---:|---|
-| **0a** | `pred_results_fet_iter1_tta_balanced.zip` | **0.9289** | **迭代重打标round1，首超soup(0.9267)，最想验证** |
-| 0b | `pred_results_fet_soup_tta_balanced.zip` | ~0.929 | FET 强checkpoint汤（若已生成，soup通常≥单模型） |
-| 0c | `pred_results_fet_c448_elr_tta_balanced.zip` | 0.9214 | FET+ELR baseline，做 A/B 看 ELR/迭代增量 |
+| **0a** | `pred_results_fet_iter1_tta_balanced.zip` | **0.9289** | **迭代重打标round1，首超soup(0.9267)，最想验证的代表** |
+| **0b** | `pred_results_fet_512_tta_balanced.zip` | **0.9293** | FET@512+干净标签,val 最高;若 0a 上榜>77.7 则跟上 |
+| 0c | `pred_results_fet_soup_tta_balanced.zip` | ~0.929 | FET 强checkpoint汤 |
+
+> **FET 线 val 已平台在 ~0.929**（iter1 0.9289 / iter2 0.9289 / 512 0.9293），全部略超 soup 的 0.9267。**最缺也最关键的是其中任意一个的榜分**——只要 1 发就能判定这条线能否破 77.7。强烈建议 codex **下一发就从 0a/0b 选一个打**（重跑 `aicomp_apply_guide_queue.mjs` 以读取本优先级）。
 
 > 说明：val 不可靠预测榜分，但这是首个 val 超 soup 的单模型；**最缺的就是它的榜分**。优先用 1-2 发验证 FET 线能否转化为 >77.7。若 iter1 上榜 >77.7 → 这条线是冲 80+ 的主攻方向。
 
