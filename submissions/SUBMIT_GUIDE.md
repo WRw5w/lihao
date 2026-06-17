@@ -1,87 +1,73 @@
-# 打榜提交指南（Codex 执行版）— 2026-06-16
+# 打榜提交指南（Codex 执行版）- 2026-06-17
 
-## 复核原则
+## 当前结论
 
-- 只有 `aicomp_results.csv` / `aicomp_leaderboard_snapshots.log` 里由脚本抓到的结果，才算已验证榜分。
-- 人工记录只作为线索，不作为跳过依据；`soup_uniform=76.7`、`c448_dr_rank32_keep90 显著提升`、`run60_ep60 -1` 都需要重新落到 CSV。
-- 第一轮目标是广度搜索：每个不同模型/策略先 1 发，覆盖最大策略空间；2 seed 留到第二轮稳定性确认。
-- 推理降级版跳过：所有无 balance 的 `_tta.zip`、旧基线、单尺度替代品，除非它本身就是要验证的唯一可用策略。
+- 第一轮广度搜索已完成：16 个有效榜分，另有 2 条历史空抓榜记录不计入有效结果。
+- 当前最强是 `pred_results_soup_sweep_tta_balanced_s0.75.zip`：`77.7306`，rank 2。
+- 第二强是 `pred_results_soup_uniform_tta_balanced.zip`：`77.6865`，只低 `0.0441`。
+- soup 分支明显领先；下一轮优先继续验证 soup_v3 与 balance strength 曲线。
+- 非 soup 中较强的是 `swa_champion` (`76.7293`)、`conservative` (`76.2206`)、`c448_dr_rank32_keep90` (`76.1485`)。
 
-## 已脚本确认
+## 已验证榜分
 
-| 文件 | 分数 | 结论 |
-|---|---:|---|
-| `pred_results_5sig_full_v2_tta_balanced.zip` | 75.6639 | 5sig 最强已确认 |
-| `pred_results_5sig_full_v2_tta.zip` | 73.3648 | 无 balance 比 full balance 低 2.2991 |
-| `pred_results_5sig_full_tta_balanced.zip` | 74.2300 | 5sig full 旧版低于 v2 |
-| `pred_results_5sig_full_tta.zip` | 72.2634 | 无 balance 继续劣化 |
-| `pred_results_5sig_ep8_tta_balanced.zip` | 73.5571 | 5sig ep8 不够强 |
-| `pred_results_5sig_tta_balanced.zip` | 73.6212 | 5sig lean 版低于 full v2 |
+| 文件 | 分数 | 排名 | 结论 |
+|---|---:|---:|---|
+| `pred_results_soup_sweep_tta_balanced_s0.75.zip` | 77.7306 | 2 | 当前最强；说明 balance strength 不一定越满越好 |
+| `pred_results_soup_uniform_tta_balanced.zip` | 77.6865 | 2 | 与 s0.75 非常接近，是强基线 |
+| `pred_results_soup_v2_tta_balanced.zip` | 76.8334 | 2 | 多样化 soup 有效，但低于 uniform/sweep |
+| `pred_results_swa_champion_tta_balanced.zip` | 76.7293 | 2 | 单模型/SWA 中较强 |
+| `pred_results_conservative_tta_balanced.zip` | 76.2206 | 2 | 中上，低于 soup |
+| `pred_results_c448_dr_rank32_keep90_tta_balanced.zip` | 76.1485 | 2 | 单冠军满推理可用，但低于 soup |
+| `pred_results_swa_run60_tta_balanced.zip` | 75.6679 | 3 | 接近旧 5sig 强基线 |
+| `pred_results_5sig_full_v2_tta_balanced.zip` | 75.6639 | 3 | 旧 5sig 最强已被 soup 超过 |
+| `pred_results_run60_ep60_tta_balanced.zip` | 75.6198 | 3 | 低于 soup/SWA champion |
+| `pred_results_soup_greedy_tta_balanced.zip` | 75.3314 | 4 | 贪心 soup 不如 uniform/sweep |
+| `pred_results_c448_gce_balanced.zip` | 73.5571 | 5 | 单尺度 GCE 表现差；full TTA 仍需补验一次 |
 
-5sig 分支第一轮已结束，后续转向 soup / c448 / SWA / 策略差异验证。
+## 🚀 最高优先（新线：FET + 迭代重打标，2026-06-17）
 
-## 今晚执行队列
+**强烈建议下一发就提交 FET 候选**——这是新架构线（CLIP冻结+LoRA+CBAM局部分支+PFI）+ 迭代重打标去噪的产物，**首个在 90/10 val 上超过 soup 的单模型**，最可能突破 77.7。详见 [docs/冲分路线_80-85.md](../docs/冲分路线_80-85.md)。
 
-当前状态：
+| 顺序 | 文件 | val mid | 目的 |
+|---:|---|---:|---|
+| **0a** | `pred_results_fet_iter1_tta_balanced.zip` | **0.9289** | **迭代重打标round1，首超soup(0.9267)，最想验证** |
+| 0b | `pred_results_fet_soup_tta_balanced.zip` | ~0.929 | FET 强checkpoint汤（若已生成，soup通常≥单模型） |
+| 0c | `pred_results_fet_c448_elr_tta_balanced.zip` | 0.9214 | FET+ELR baseline，做 A/B 看 ELR/迭代增量 |
 
-- `pred_results_soup_v2_tta_balanced.zip` 可能已在 2026-06-16 22:07 左右提交，runner 正在等待 23:05 抓榜确认；只有榜单提交时间晚于本次提交开始时间才算有效。
-- `pred_results_soup_uniform_tta_balanced.zip` 的 22:05 抓榜是旧分 `73.6212`，不算验证，已退回 pending，等当前 awaiting 项确认后再重交。
+> 说明：val 不可靠预测榜分，但这是首个 val 超 soup 的单模型；**最缺的就是它的榜分**。优先用 1-2 发验证 FET 线能否转化为 >77.7。若 iter1 上榜 >77.7 → 这条线是冲 80+ 的主攻方向。
 
-后续顺序按“信息量 + 已就绪 + 策略差异”排序。
+## 第二轮队列
 
-| 顺序 | 文件 | 策略目的 |
+先补齐已生成但未验证的 balanced 主候选；这些比重复提交更有信息量。
+
+| 顺序 | 文件 | 目的 |
 |---:|---|---|
-| 0 | `pred_results_5sig_tta_balanced.zip` | 已提交，只抓结果 |
-| 1 | `pred_results_soup_uniform_tta_balanced.zip` | 复核人工 76.7，正式落 CSV |
-| 2 | `pred_results_soup_v2_tta_balanced.zip` | 多样化 soup，新增强候选 |
-| 3 | `pred_results_soup_greedy_tta_balanced.zip` | 最强单模型/贪心 soup 锚点 |
-| 4 | `pred_results_c448_dr_rank32_keep90_tta_balanced.zip` | 单冠军 LoRA 满推理，复核结构主线 |
-| 5 | `pred_results_conservative_tta_balanced.zip` | 保守化训练策略 |
-| 6 | `pred_results_swa_champion_tta_balanced.zip` | 满数据 SWA 是否有效 |
-| 7 | `pred_results_swa_run60_tta_balanced.zip` | 长训练后段 SWA 是否能救回 |
-| 8 | `pred_results_soup_v3_tta_balanced.zip` | 若生成完成则自动纳入下一轮重排 |
-| 9 | `pred_results_c448_gce_tta_balanced.zip` | 若补生成 full TTA GCE，则优先于单尺度 GCE |
-| 10 | `pred_results_keep85_tta_balanced.zip` | 若补生成，验证弱召回 |
-| 11 | `pred_results_keep95_tta_balanced.zip` | 若补生成，验证强召回 |
-| 12 | `pred_results_aug06_tta_balanced.zip` | 若补生成，验证强增强 |
-| 13 | `pred_results_ema9995_tta_balanced.zip` | 若补生成，验证高 EMA |
-| 14 | `pred_results_drecall_tta_balanced.zip` | 若补生成，复核旧冠军前身 |
+| 1 | `pred_results_soup_v3_tta_balanced.zip` | 新大汤，最可能挑战当前 best |
+| 2 | `pred_results_soup_sweep_tta_balanced_s0.5.zip` | 补 strength 曲线，判断 s0.75 是否局部最优 |
+| 3 | `pred_results_soup_sweep_tta_balanced_s0.25.zip` | 补低 strength 端点，判断曲线形状 |
+| 4 | `pred_results_keep95_tta_balanced.zip` | 策略模型：高保留率 |
+| 5 | `pred_results_keep85_tta_balanced.zip` | 策略模型：低保留率 |
+| 6 | `pred_results_aug06_tta_balanced.zip` | 策略模型：强增强 |
+| 7 | `pred_results_ema9995_tta_balanced.zip` | 策略模型：高 EMA |
+| 8 | `pred_results_drecall_tta_balanced.zip` | 复核旧冠军前身满推理 |
+| 9 | `pred_results_c448_gce_tta_balanced.zip` | GCE full TTA；单尺度差，但补齐证据 |
 
-## 低优先备用
+## 后续决策
 
-这些不是第一选择，但如果补生成文件暂时未出现、又需要继续占用整点窗口，可以作为 fallback：
-
-- `pred_results_c448_gce_balanced.zip`：GCE 单尺度 balanced，低于 full TTA GCE。
-- `pred_results_run60_ep60_tta_balanced.zip`：复核人工 `-1` 记录。
-- `pred_results_soup_sweep_tta_balanced_s0.75.zip`：balance strength 曲线最高 λ 备用点。
-
-## 明确跳过
-
-- 所有不带 `_balanced` 的 `_tta.zip`：缺 balance。
-- `pred_results.zip`、`pred_results_head.zip`、`pred_results_lora.zip`、`pred_results_c448.zip`、`pred_results_c448_drecall.zip`：旧基线/旧单尺度。
-- `pred_results_5sig_ep8_tta.zip`、`pred_results_5sig_tta.zip`、`pred_results_5sig_full_v2_tta.zip`：5sig 无 balance 或已验证弱。
-- `pred_results_c448_dr_rank32_keep90.zip`、`pred_results_c448_dr_rank32_keep90_balanced.zip`、`pred_results_c448_dr_rank32_keep90_balanced_s05.zip`：被同模型 full TTA balanced 目标支配。
+- 如果 `soup_v3` 超过当前 best：围绕 `soup_v3` 生成/提交 strength sweep。
+- 如果 `s0.5` 或 `s0.25` 超过 `s0.75`：继续在更优区间插点，例如 `0.375/0.625`。
+- 如果 `s0.75` 仍最佳：下一轮优先复核 `s0.75` 和 `soup_uniform`，再做更密 strength 网格。
+- 不提交无 `_balanced` 的 `_tta.zip`，除非专门需要量化 balance 增益；第一轮已经证明无 balance 普遍明显吃亏。
 
 ## 执行命令
-
-浏览器建议用专用启动脚本打开，避免 Chrome 后台节流/内存节省影响长时间等待：
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\aicomp_start_chrome.ps1 -Restart
-node tools\aicomp_cdp.mjs wait-login 300000
-```
-
-如果已经手动登录且页面正常，不必强制重启；runner 等待整点时会每 2 分钟 heartbeat 一次，并在遇到 `共 0 条数据`、排行榜 `暂无数据` 时自动刷新重试。默认保持两个 AICOMP tab：一个提交页，一个排行榜页；提交和抓榜不会再反复复用同一个 tab。runner 会优先处理 `awaiting_refresh`，抓到新提交时间的新分后才会提交下一个 pending，防止跨整点提交被下一发覆盖。
-
-查看当前 tab 识别：
-
-```powershell
-node tools\aicomp_cdp.mjs pages
-```
 
 ```powershell
 node tools\aicomp_apply_guide_queue.mjs
 node tools\aicomp_submit_queue.mjs run
 ```
 
-运行中如果新文件生成，先暂停 runner，再执行 `node tools\aicomp_apply_guide_queue.mjs` 重排，最后恢复 runner。
+运行要求：
+
+- 保持两个 AICOMP tab：一个提交页，一个排行榜页。
+- `node tools\aicomp_cdp.mjs pages` 可检查 tab 识别。
+- runner 会优先处理 `awaiting_refresh`，抓到新提交时间的新分后才会提交下一个 pending。
