@@ -1,0 +1,30 @@
+kNN filter keeps 83401/103218 (80.80%)
+targets ready: 83485 usable samples (84 pseudo-labelled)
+ELR on: lambda=1.0 beta=0.7 buffer=(103218, 500) (206MB)
+train images 83485  val images 10285
+trainable params: 17.58M
+D:\02_Projects\ML\jinyinsai\finetune_fet.py:392: UserWarning: Detected call of `lr_scheduler.step()` before `optimizer.step()`. In PyTorch 1.1.0 and later, you should call them in the opposite order: `optimizer.step()` before `lr_scheduler.step()`.  Failure to do this will result in PyTorch skipping the first value of the learning rate schedule. See more details at https://pytorch.org/docs/stable/optim.html#how-to-adjust-learning-rate
+  sched.step()
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+D:\04_Tools\Python\Lib\site-packages\PIL\TiffImagePlugin.py:949: UserWarning: Corrupt EXIF data.  Expecting to read 4 bytes but only got 2. 
+  warnings.warn(str(msg))
+epoch 01/6 loss=3.8341 time=947s  noisy_all=0.689  low_lt03=0.3677  mid_03_06=0.8361  high_ge06=0.9888  *best*
+D:\04_Tools\Python\Lib\site-packages\PIL\TiffImagePlugin.py:949: UserWarning: Corrupt EXIF data.  Expecting to read 4 bytes but only got 2. 
+  warnings.warn(str(msg))
+epoch 02/6 loss=3.3339 time=864s  noisy_all=0.73  low_lt03=0.4362  mid_03_06=0.8773  high_ge06=0.9939  *best*
+epoch 03/6 loss=2.8730 time=788s  noisy_all=0.7523  low_lt03=0.4735  mid_03_06=0.9016  high_ge06=0.9949  *best*  [snap]
+epoch 04/6 loss=2.3924 time=892s  noisy_all=0.7696  low_lt03=0.5058  mid_03_06=0.9147  high_ge06=0.9961  *best*  [snap]
+epoch 05/6 loss=1.9834 time=865s  noisy_all=0.7767  low_lt03=0.5218  mid_03_06=0.9166  high_ge06=0.9958  *best*  [snap]
+epoch 06/6 loss=1.6614 time=839s  noisy_all=0.779  low_lt03=0.5237  mid_03_06=0.9214  high_ge06=0.9967  *best*  [snap]
+done
+loaded outputs_fet_c448_elr\lora\best.pt (epoch 6), img_size=448, scales=[448, 512, 576] x flip
+  scale 448 done
+  scale 512 done
+  scale 576 done
+tta          dist: min=3 max=165 std=20.2
+tta_balanced       dist: min=46 max=54 std=1.3  (changed 4398)
+saved submissions\pred_results_fet_elr_tta.csv and submissions\pred_results_fet_elr_tta.zip
+saved submissions\pred_results_fet_elr_tta_balanced.csv and submissions\pred_results_fet_elr_tta_balanced.zip
