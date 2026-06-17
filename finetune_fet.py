@@ -128,6 +128,26 @@ def prepare_targets(args, device, train_idx: torch.Tensor, val_idx: torch.Tensor
     p_label, preds_t, pmax_t, margins_t = teacher_stats(teacher, f32, y)
     knn_preds_tr = knn_majority_prediction(ftr, ftr, ytr, args.knn_k, num_classes, exclude_self=True)
 
+    # Iterative relabeling: replace the WEAK linear-teacher stats with a strong
+    # trained model's predictions (a far better label cleaner) -> the same
+    # consensus/pseudo rules below then recover/relabel more of the noisy labels.
+    # Off by default (no path) so baseline is unaffected. (teacher head kept for
+    # head warm-start; only the pseudo-decision stats are overridden.)
+    if args.teacher_preds_path and Path(args.teacher_preds_path).exists():
+        mp = torch.load(args.teacher_preds_path, map_location="cpu")
+        assert mp["image_names"] == image_names, "model-preds image order != feature cache"
+        probs = mp["probs"].to(device).float()
+        preds_t = probs.argmax(1)
+        pmax_t = probs.max(1).values
+        top2 = probs.topk(2, dim=1).values
+        margins_t = top2[:, 0] - top2[:, 1]
+        p_label = probs.gather(1, y.view(-1, 1)).squeeze(1)
+        would = ((~keep[tr]) & (preds_t[tr] == knn_preds_tr)
+                 & (pmax_t[tr] >= args.pseudo_thresh) & (margins_t[tr] >= args.pseudo_margin))
+        print(f"[iter-relabel] model preds from {Path(args.teacher_preds_path).name}: "
+              f"mean_conf={pmax_t.mean():.3f}, would recover {int(would.sum())} discarded "
+              f"(linear-teacher recovered ~84)")
+
     target_labels = y.clone()
     weights = torch.zeros(y.numel(), dtype=torch.float32, device=device)
     sig_terms = [
@@ -530,6 +550,9 @@ def parse_args():
     p.add_argument("--elr-lambda", type=float, default=0.0,
                    help="ELR strength (0=off). Counteracts memorizing noisy labels; try 1-3.")
     p.add_argument("--elr-beta",   type=float, default=0.7, help="ELR temporal-ensemble EMA decay")
+    p.add_argument("--teacher-preds-path", default="",
+                   help="iterative relabel: .pt of a trained model's train-set probs "
+                        "(from tools/extract_model_preds.py) to use as the pseudo-label teacher")
     # LoRA
     p.add_argument("--lora-rank",    type=int,   default=32)
     p.add_argument("--lora-alpha",   type=float, default=64.0)
