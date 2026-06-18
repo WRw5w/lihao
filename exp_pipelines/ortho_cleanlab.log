@@ -1,0 +1,26 @@
+kNN filter keeps 83401/103218 (80.80%)
+cleanlab[cleanlab] keeps 85352/92933 (91.84%)
+targets ready: 85538 usable samples (186 consensus pseudo-labelled)
+train images 85538  val images 10285
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+trainable params: 5.10M
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+epoch 01/6 loss=1.9481 time=714s  noisy_all=0.718  low_lt03=0.415  mid_03_06=0.8649  high_ge06=0.9942  *best*
+epoch 02/6 loss=1.6950 time=701s  noisy_all=0.7571  low_lt03=0.4868  mid_03_06=0.8982  high_ge06=0.9955  *best*
+epoch 03/6 loss=1.5141 time=702s  noisy_all=0.7757  low_lt03=0.5232  mid_03_06=0.9095  high_ge06=0.9967  *best*  [snap]
+epoch 04/6 loss=1.3555 time=699s  noisy_all=0.7842  low_lt03=0.5392  mid_03_06=0.9177  high_ge06=0.9958  *best*  [snap]
+epoch 05/6 loss=1.2313 time=697s  noisy_all=0.7903  low_lt03=0.5501  mid_03_06=0.9229  high_ge06=0.9961  *best*  [snap]
+epoch 06/6 loss=1.1663 time=701s  noisy_all=0.7891  low_lt03=0.5492  mid_03_06=0.9207  high_ge06=0.9955
+done
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+loaded outputs_ortho_cleanlab\lora\full.pt (epoch 5), img_size=448, scales=[448, 512, 576] x flip
+  scale 448 done
+  scale 512 done
+  scale 576 done
+tta          dist: min=0 max=212 std=19.2
+tta_balanced       dist: min=46 max=53 std=1.2  (changed 4019)
+saved submissions\pred_results_ortho_cleanlab_tta.csv and submissions\pred_results_ortho_cleanlab_tta.zip
+saved submissions\pred_results_ortho_cleanlab_tta_balanced.csv and submissions\pred_results_ortho_cleanlab_tta_balanced.zip
