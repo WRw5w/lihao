@@ -1,0 +1,26 @@
+kNN filter keeps 83401/103218 (80.80%)
+targets ready: 83485 usable samples (84 consensus pseudo-labelled)
+train images 83485  val images 10285
+trainable params: 5.10M
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+D:\04_Tools\Python\Lib\site-packages\PIL\TiffImagePlugin.py:949: UserWarning: Corrupt EXIF data.  Expecting to read 4 bytes but only got 2. 
+  warnings.warn(str(msg))
+epoch 01/6 loss=2.5790 time=712s  noisy_all=0.7089  low_lt03=0.4009  mid_03_06=0.8556  high_ge06=0.9918  *best*
+epoch 02/6 loss=2.3216 time=704s  noisy_all=0.7444  low_lt03=0.4605  mid_03_06=0.8934  high_ge06=0.9939  *best*
+epoch 03/6 loss=2.1438 time=700s  noisy_all=0.7637  low_lt03=0.4963  mid_03_06=0.9095  high_ge06=0.9946  *best*  [snap]
+epoch 04/6 loss=2.0379 time=692s  noisy_all=0.776  low_lt03=0.5186  mid_03_06=0.9222  high_ge06=0.9933  *best*  [snap]
+epoch 05/6 loss=1.9085 time=692s  noisy_all=0.7789  low_lt03=0.5241  mid_03_06=0.9229  high_ge06=0.9946  *best*  [snap]
+epoch 06/6 loss=1.8200 time=690s  noisy_all=0.7827  low_lt03=0.5325  mid_03_06=0.9252  high_ge06=0.9936  *best*  [snap]
+done
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+loaded outputs_ortho_mixup02\lora\full.pt (epoch 6), img_size=448, scales=[448, 512, 576] x flip
+  scale 448 done
+  scale 512 done
+  scale 576 done
+tta          dist: min=2 max=184 std=19.4
+tta_balanced       dist: min=44 max=54 std=1.3  (changed 4295)
+saved submissions\pred_results_ortho_mixup02_tta.csv and submissions\pred_results_ortho_mixup02_tta.zip
+saved submissions\pred_results_ortho_mixup02_tta_balanced.csv and submissions\pred_results_ortho_mixup02_tta_balanced.zip
