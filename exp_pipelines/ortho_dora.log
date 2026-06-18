@@ -1,0 +1,31 @@
+kNN filter keeps 83401/103218 (80.80%)
+targets ready: 83485 usable samples (84 consensus pseudo-labelled)
+train images 83485  val images 10285
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+trainable params: 5.19M
+D:\02_Projects\ML\jinyinsai\finetune_lora.py:372: UserWarning: Detected call of `lr_scheduler.step()` before `optimizer.step()`. In PyTorch 1.1.0 and later, you should call them in the opposite order: `optimizer.step()` before `lr_scheduler.step()`.  Failure to do this will result in PyTorch skipping the first value of the learning rate schedule. See more details at https://pytorch.org/docs/stable/optim.html#how-to-adjust-learning-rate
+  sched.step()
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+D:\04_Tools\Python\Lib\site-packages\PIL\TiffImagePlugin.py:949: UserWarning: Corrupt EXIF data.  Expecting to read 4 bytes but only got 2. 
+  warnings.warn(str(msg))
+epoch 01/6 loss=2.1608 time=810s  noisy_all=0.6873  low_lt03=0.3695  mid_03_06=0.8275  high_ge06=0.9882  *best*
+epoch 02/6 loss=1.8274 time=878s  noisy_all=0.7301  low_lt03=0.4406  mid_03_06=0.8721  high_ge06=0.9927  *best*
+epoch 03/6 loss=1.6357 time=789s  noisy_all=0.7491  low_lt03=0.4696  mid_03_06=0.8971  high_ge06=0.9939  *best*  [snap]
+D:\04_Tools\Python\Lib\site-packages\PIL\TiffImagePlugin.py:949: UserWarning: Corrupt EXIF data.  Expecting to read 4 bytes but only got 2. 
+  warnings.warn(str(msg))
+epoch 04/6 loss=1.4761 time=855s  noisy_all=0.7604  low_lt03=0.4905  mid_03_06=0.9061  high_ge06=0.9946  *best*  [snap]
+epoch 05/6 loss=1.3482 time=891s  noisy_all=0.7664  low_lt03=0.5021  mid_03_06=0.9106  high_ge06=0.9942  *best*  [snap]
+epoch 06/6 loss=1.2789 time=877s  noisy_all=0.7702  low_lt03=0.5107  mid_03_06=0.9128  high_ge06=0.993  *best*  [snap]
+done
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+loaded outputs_ortho_dora\lora\full.pt (epoch 6), img_size=448, scales=[448, 512, 576] x flip
+  scale 448 done
+  scale 512 done
+  scale 576 done
+tta          dist: min=6 max=128 std=18.4
+tta_balanced       dist: min=45 max=55 std=1.4  (changed 4193)
+saved submissions\pred_results_ortho_dora_tta.csv and submissions\pred_results_ortho_dora_tta.zip
+saved submissions\pred_results_ortho_dora_tta_balanced.csv and submissions\pred_results_ortho_dora_tta_balanced.zip
