@@ -24,19 +24,28 @@
 | `pred_results_soup_greedy_tta_balanced.zip` | 75.3314 | 4 | 贪心 soup 不如 uniform/sweep |
 | `pred_results_c448_gce_balanced.zip` | 73.5571 | 5 | 单尺度 GCE 表现差；full TTA 仍需补验一次 |
 
-## 🚀 最高优先（新线：FET + 迭代重打标，2026-06-17）
+## ⚠️ FET 线已判定（2026-06-18 榜分回来）：全部 ~76 单模型档，**降优先级**
 
-**强烈建议下一发就提交 FET 候选**——这是新架构线（CLIP冻结+LoRA+CBAM局部分支+PFI）+ 迭代重打标去噪的产物，**首个在 90/10 val 上超过 soup 的单模型**，最可能突破 77.7。详见 [docs/冲分路线_80-85.md](../docs/冲分路线_80-85.md)。
+FET 线已拿到榜分，**结论是封板**：`fet_iter1`=**76.16**、`fet_elr8`=76.02、`fet_elr`=76.06、`fet_c448`=75.52。
+val 0.9289（曾首超 soup）**没有转化为榜分优势**——和最优单 LoRA(76.15)同档。坐实瓶颈=冻结 B/32 特征+噪声，**不是头部架构**。
+- **剩余 FET 候选（`fet_512` / `fet_soup` / `fet_iter2`）预期同样 ~76，请降到队尾**，不要再占用前排榜位（除非空闲）。
 
-| 顺序 | 文件 | val mid | 目的 |
-|---:|---|---:|---|
-| **0a** | `pred_results_fet_iter1_tta_balanced.zip` | **0.9289** | **迭代重打标round1，首超soup(0.9267)，最想验证的代表** |
-| **0b** | `pred_results_fet_512_tta_balanced.zip` | **0.9293** | FET@512+干净标签,val 最高;若 0a 上榜>77.7 则跟上 |
-| 0c | `pred_results_fet_soup_tta_balanced.zip` | ~0.929 | FET 强checkpoint汤 |
+## 🆕 最高优先（新线：正交去噪机制 ortho，2026-06-18）
 
-> **FET 线 val 已平台在 ~0.929**（iter1 0.9289 / iter2 0.9289 / 512 0.9293），全部略超 soup 的 0.9267。**最缺也最关键的是其中任意一个的榜分**——只要 1 发就能判定这条线能否破 77.7。强烈建议 codex **下一发就从 0a/0b 选一个打**（重跑 `aicomp_apply_guide_queue.mjs` 以读取本优先级）。
+为跳出 ~76 单 / 77.7 汤的天花板，开了一批**机制本质不同**的探针（champion 配方 + 单一改动），文件名 `pred_results_ortho_<名>_tta_balanced.zip`。**生成一个就请提交一个**（A/B vs 单模型 76.1 与 soup 77.73）。判据：单模型若明显 >76.5 即"有戏"，随后会做它的 soup 冲 78+。
 
-> 说明：val 不可靠预测榜分，但这是首个 val 超 soup 的单模型；**最缺的就是它的榜分**。优先用 1-2 发验证 FET 线能否转化为 >77.7。若 iter1 上榜 >77.7 → 这条线是冲 80+ 的主攻方向。
+| 顺序 | 文件（生成后即提交） | 机制 |
+|---:|---|---|
+| 1 | `pred_results_ortho_sce_tta_balanced.zip` | 对称交叉熵 SCE（鲁棒损失，正交于kNN去噪） |
+| 2 | `pred_results_ortho_apl_tta_balanced.zip` | Active-Passive Loss（NCE+RCE，理论鲁棒） |
+| 3 | `pred_results_ortho_mixup02_tta_balanced.zip` | Mixup α0.2（标签噪声平滑） |
+| 4 | `pred_results_ortho_dora_tta_balanced.zip` | DoRA（权重分解PEFT，抬单模型上限） |
+| 5 | `pred_results_ortho_mixup04_tta_balanced.zip` | Mixup α0.4（第二发） |
+| 6 | `pred_results_ortho_dora16_tta_balanced.zip` | DoRA rank16（第二发） |
+| 7 | `pred_results_ortho_cleanlab_tta_balanced.zip` | Confident Learning 干净集选择 |
+| 8 | `pred_results_ortho_cleanlabknn_tta_balanced.zip` | CL ∩ kNN（更严格干净集） |
+
+> 这些是"试试水"探针：大多数预计仍 ~76（验证瓶颈是特征非机制），但只要**任意一发明显破 76.5**，就锁定主攻方向并升级成 soup。**val 不可靠，只认榜分**——所以每发都值得一个榜位。
 
 ## 第二轮队列
 
