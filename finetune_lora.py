@@ -256,7 +256,8 @@ def train(args) -> None:
 
     model = build_lora_model(num_classes, args.lora_rank, args.lora_alpha, args.lora_dropout,
                              prep["teacher_head_state"], device, lora_blocks=args.lora_blocks,
-                             lora_target=args.lora_target, img_size=args.img_size, peft=args.peft)
+                             lora_target=args.lora_target, img_size=args.img_size, peft=args.peft,
+                             feat_fuse=args.feat_fuse)
     train_tf, eval_tf = build_finetune_transforms(model.backbone, args.crop_min_scale,
                                                   img_size=args.img_size, randaug=args.randaug)
     n_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -437,7 +438,8 @@ def predict(args) -> None:
                              lora_blocks=targs.get("lora_blocks", args.lora_blocks),
                              lora_target=targs.get("lora_target", args.lora_target),
                              img_size=targs.get("img_size", args.img_size),
-                             peft=targs.get("peft", args.peft))
+                             peft=targs.get("peft", args.peft),
+                             feat_fuse=targs.get("feat_fuse", args.feat_fuse))
     model.load_state_dict(ckpt["model"])
     model.eval()
     print(f"loaded {ckpt_path} (epoch {ckpt.get('epoch')})")
@@ -518,6 +520,8 @@ def parse_args():
                    help="Mixup Beta(a,a) strength (0=off; 0.2 mild, 0.4 stronger)")
     p.add_argument("--peft", choices=("lora", "dora"), default="lora",
                    help="dora = weight-decomposed LoRA (Liu 2024), strictly generalises lora")
+    p.add_argument("--feat-fuse", type=int, default=0,
+                   help="fuse CLS tokens of the last K transformer blocks (0=off=last layer only)")
     p.add_argument("--save-every", type=int, default=0,
                    help="also snapshot ep<N>.pt every N epochs (periodic anchors)")
     p.add_argument("--snapshot-after", type=int, default=0,

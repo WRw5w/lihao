@@ -97,13 +97,36 @@ class DoRALinear(nn.Module):
 
 
 class LoraClassifier(nn.Module):
-    def __init__(self, backbone: nn.Module, head: CosineClassifier):
+    def __init__(self, backbone: nn.Module, head: CosineClassifier, feat_fuse: int = 0):
         super().__init__()
         self.backbone = backbone
         self.head = head
+        # feat_fuse>0: fuse the CLS tokens of the last K transformer blocks with a
+        # learnable softmax-weighted sum (uniform init = genuine multi-layer fusion).
+        # Tests whether earlier-layer features lift the frozen-B/32 ceiling. Compliant
+        # (single model, single inference; dim stays D so the head is unchanged).
+        self.feat_fuse = feat_fuse
+        if feat_fuse > 0:
+            self.fuse_weight = nn.Parameter(torch.zeros(feat_fuse))
+
+    def _fused_feat(self, x: torch.Tensor) -> torch.Tensor:
+        b = self.backbone
+        x = b.patch_embed(x)
+        x = b._pos_embed(x)
+        x = b.patch_drop(x)
+        x = b.norm_pre(x)
+        start = len(b.blocks) - self.feat_fuse
+        cls = []
+        for i, blk in enumerate(b.blocks):
+            x = blk(x)
+            if i >= start:
+                cls.append(x[:, 0])
+        feats = b.norm(torch.stack(cls, dim=1))  # (B, K, D), frozen final LN per token
+        w = self.fuse_weight.softmax(0).to(feats.dtype)
+        return (feats * w[None, :, None]).sum(1)  # (B, D)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        feat = self.backbone(x)
+        feat = self._fused_feat(x) if self.feat_fuse > 0 else self.backbone(x)
         feat = F.normalize(feat.float(), dim=-1)
         return self.head(feat)
 
@@ -121,7 +144,7 @@ def build_frozen_backbone(device: torch.device) -> nn.Module:
 def build_lora_model(num_classes: int, rank: int, alpha: float, lora_dropout: float,
                      head_state: dict | None, device: torch.device,
                      lora_blocks: int = 12, lora_target: str = "attn",
-                     img_size: int = 224, peft: str = "lora") -> LoraClassifier:
+                     img_size: int = 224, peft: str = "lora", feat_fuse: int = 0) -> LoraClassifier:
     # img_size != 224 makes timm resample the CLIP position embeddings; the
     # pretrained weights themselves are unchanged (competition-compliant).
     backbone = timm.create_model(MODEL_NAME, pretrained=True, num_classes=0, img_size=img_size)
@@ -131,5 +154,5 @@ def build_lora_model(num_classes: int, rank: int, alpha: float, lora_dropout: fl
     head = CosineClassifier(backbone.num_features, num_classes, dropout=0.0)
     if head_state is not None:
         head.load_state_dict(head_state)
-    model = LoraClassifier(backbone, head).to(device)
+    model = LoraClassifier(backbone, head, feat_fuse=feat_fuse).to(device)
     return model
