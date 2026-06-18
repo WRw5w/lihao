@@ -50,6 +50,32 @@ from robustft.robust_utils import choose_checkpoint, validate_disjoint_split
 from robustft.submission import save_predictions, zip_submission
 
 
+def _loss_vec(logits: torch.Tensor, target: torch.Tensor, args) -> torch.Tensor:
+    """Per-sample loss for the chosen robust objective (no soft-alpha; used by the
+    mixup wrapper and the gce/sce/apl branches). Computed in fp32 for log stability."""
+    if args.robust_loss == "gce":
+        # Generalized Cross-Entropy (Zhang & Sabuncu 2018): L_q=(1-p_y^q)/q.
+        p_y = logits.float().softmax(1).gather(1, target.unsqueeze(1)).squeeze(1).clamp_min(1e-6)
+        return (1.0 - p_y.pow(args.gce_q)) / args.gce_q
+    if args.robust_loss == "sce":
+        # Symmetric Cross-Entropy (Wang 2019): alpha*CE + beta*RCE; RCE is robust.
+        ce = F.cross_entropy(logits, target, reduction="none", label_smoothing=args.label_smoothing)
+        p = logits.float().softmax(1).clamp(1e-7, 1.0)
+        oh = F.one_hot(target, logits.size(1)).float().clamp_min(1e-4)
+        rce = -(p * oh.log()).sum(1)
+        return args.sce_alpha * ce + args.sce_beta * rce
+    if args.robust_loss == "apl":
+        # Active Passive Loss (Ma 2020): normalized CE (active) + RCE (passive),
+        # theoretically robust to symmetric noise.
+        lp = logits.float().log_softmax(1)
+        nce = (-lp.gather(1, target.unsqueeze(1)).squeeze(1)) / (-lp.sum(1)).clamp_min(1e-6)
+        p = lp.exp().clamp(1e-7, 1.0)
+        oh = F.one_hot(target, logits.size(1)).float().clamp_min(1e-4)
+        rce = -(p * oh.log()).sum(1)
+        return args.apl_alpha * nce + args.apl_beta * rce
+    return F.cross_entropy(logits, target, reduction="none", label_smoothing=args.label_smoothing)
+
+
 def prepare_targets(args, device, train_idx: torch.Tensor, val_idx: torch.Tensor) -> dict:
     """Frozen-feature stage: kNN keep mask + teacher + compact targets/weights.
 
@@ -213,7 +239,7 @@ def train(args) -> None:
 
     model = build_lora_model(num_classes, args.lora_rank, args.lora_alpha, args.lora_dropout,
                              prep["teacher_head_state"], device, lora_blocks=args.lora_blocks,
-                             lora_target=args.lora_target, img_size=args.img_size)
+                             lora_target=args.lora_target, img_size=args.img_size, peft=args.peft)
     train_tf, eval_tf = build_finetune_transforms(model.backbone, args.crop_min_scale,
                                                   img_size=args.img_size, randaug=args.randaug)
     n_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -297,13 +323,20 @@ def train(args) -> None:
             tb = target_labels_all[gidx]
             wb = weights_all[gidx]
             opt.zero_grad(set_to_none=True)
+            perm = None
+            if args.mixup_alpha > 0:
+                # Mixup (Zhang 2018): convex-combine inputs + targets -> a strong
+                # label-noise smoother, orthogonal to the kNN denoising pipeline.
+                lam = float(np.random.beta(args.mixup_alpha, args.mixup_alpha))
+                perm = torch.randperm(images.size(0), device=device)
+                images = lam * images + (1.0 - lam) * images[perm]
             with torch.autocast("cuda", dtype=torch.float16):
                 logits = model(images)
-                if args.robust_loss == "gce":
-                    # Generalized Cross-Entropy (Zhang & Sabuncu 2018): noise-robust,
-                    # L_q = (1 - p_y^q)/q; q->0 approaches CE, q=0.7 a common robust value.
-                    p_y = logits.softmax(1).gather(1, tb.unsqueeze(1)).squeeze(1).clamp_min(1e-6)
-                    loss_vec = (1.0 - p_y.pow(args.gce_q)) / args.gce_q
+                if perm is not None:
+                    loss_vec = lam * _loss_vec(logits, tb, args) + (1.0 - lam) * _loss_vec(logits, tb[perm], args)
+                    wb = lam * wb + (1.0 - lam) * wb[perm]
+                elif args.robust_loss != "ce":
+                    loss_vec = _loss_vec(logits, tb, args)
                 else:
                     loss_vec = F.cross_entropy(
                         logits, tb, reduction="none", label_smoothing=args.label_smoothing)
@@ -386,7 +419,8 @@ def predict(args) -> None:
                              targs.get("lora_alpha", args.lora_alpha), 0.0, None, device,
                              lora_blocks=targs.get("lora_blocks", args.lora_blocks),
                              lora_target=targs.get("lora_target", args.lora_target),
-                             img_size=targs.get("img_size", args.img_size))
+                             img_size=targs.get("img_size", args.img_size),
+                             peft=targs.get("peft", args.peft))
     model.load_state_dict(ckpt["model"])
     model.eval()
     print(f"loaded {ckpt_path} (epoch {ckpt.get('epoch')})")
@@ -453,9 +487,17 @@ def parse_args():
                    help="soft pseudo-label: keep this fraction of the original label vs hard-replace (conservative)")
     p.add_argument("--teacher-epochs", type=int, default=20)
     p.add_argument("--label-smoothing", type=float, default=0.1)
-    p.add_argument("--robust-loss", choices=("ce", "gce"), default="ce",
-                   help="gce = Generalized Cross-Entropy, noise-robust")
+    p.add_argument("--robust-loss", choices=("ce", "gce", "sce", "apl"), default="ce",
+                   help="gce=Generalized CE; sce=Symmetric CE; apl=Active-Passive (NCE+RCE)")
     p.add_argument("--gce-q", type=float, default=0.7)
+    p.add_argument("--sce-alpha", type=float, default=0.1, help="SCE: CE weight")
+    p.add_argument("--sce-beta", type=float, default=1.0, help="SCE: reverse-CE weight")
+    p.add_argument("--apl-alpha", type=float, default=1.0, help="APL: normalized-CE weight")
+    p.add_argument("--apl-beta", type=float, default=1.0, help="APL: reverse-CE weight")
+    p.add_argument("--mixup-alpha", type=float, default=0.0,
+                   help="Mixup Beta(a,a) strength (0=off; 0.2 mild, 0.4 stronger)")
+    p.add_argument("--peft", choices=("lora", "dora"), default="lora",
+                   help="dora = weight-decomposed LoRA (Liu 2024), strictly generalises lora")
     p.add_argument("--save-every", type=int, default=0,
                    help="also snapshot ep<N>.pt every N epochs (periodic anchors)")
     p.add_argument("--snapshot-after", type=int, default=0,
