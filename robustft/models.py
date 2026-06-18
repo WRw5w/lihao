@@ -97,7 +97,8 @@ class DoRALinear(nn.Module):
 
 
 class LoraClassifier(nn.Module):
-    def __init__(self, backbone: nn.Module, head: CosineClassifier, feat_fuse: int = 0):
+    def __init__(self, backbone: nn.Module, head: CosineClassifier, feat_fuse: int = 0,
+                 attn_pool: bool = False):
         super().__init__()
         self.backbone = backbone
         self.head = head
@@ -108,6 +109,26 @@ class LoraClassifier(nn.Module):
         self.feat_fuse = feat_fuse
         if feat_fuse > 0:
             self.fuse_weight = nn.Parameter(torch.zeros(feat_fuse))
+        # attn_pool: pool the last-block patch tokens with a learned attention query
+        # (init zeros -> mean-pool of patches) instead of taking the CLS token. Tests
+        # whether the frozen patch tokens carry usable signal the CLS misses.
+        self.attn_pool = attn_pool
+        if attn_pool:
+            self.pool_query = nn.Parameter(torch.zeros(backbone.num_features))
+
+    def _attn_pool_feat(self, x: torch.Tensor) -> torch.Tensor:
+        b = self.backbone
+        x = b.patch_embed(x)
+        x = b._pos_embed(x)
+        x = b.patch_drop(x)
+        x = b.norm_pre(x)
+        for blk in b.blocks:
+            x = blk(x)
+        x = b.norm(x)
+        patches = x[:, 1:]  # (B, L, D) drop CLS
+        scores = (patches @ self.pool_query) / (patches.size(-1) ** 0.5)  # (B, L)
+        w = scores.float().softmax(-1).to(patches.dtype)
+        return (w.unsqueeze(-1) * patches).sum(1)  # (B, D)
 
     def _fused_feat(self, x: torch.Tensor) -> torch.Tensor:
         b = self.backbone
@@ -125,9 +146,15 @@ class LoraClassifier(nn.Module):
         w = self.fuse_weight.softmax(0).to(feats.dtype)
         return (feats * w[None, :, None]).sum(1)  # (B, D)
 
+    def extract_feat(self, x: torch.Tensor) -> torch.Tensor:
+        if self.attn_pool:
+            return self._attn_pool_feat(x)
+        if self.feat_fuse > 0:
+            return self._fused_feat(x)
+        return self.backbone(x)
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        feat = self._fused_feat(x) if self.feat_fuse > 0 else self.backbone(x)
-        feat = F.normalize(feat.float(), dim=-1)
+        feat = F.normalize(self.extract_feat(x).float(), dim=-1)
         return self.head(feat)
 
 
@@ -144,7 +171,8 @@ def build_frozen_backbone(device: torch.device) -> nn.Module:
 def build_lora_model(num_classes: int, rank: int, alpha: float, lora_dropout: float,
                      head_state: dict | None, device: torch.device,
                      lora_blocks: int = 12, lora_target: str = "attn",
-                     img_size: int = 224, peft: str = "lora", feat_fuse: int = 0) -> LoraClassifier:
+                     img_size: int = 224, peft: str = "lora", feat_fuse: int = 0,
+                     attn_pool: bool = False) -> LoraClassifier:
     # img_size != 224 makes timm resample the CLIP position embeddings; the
     # pretrained weights themselves are unchanged (competition-compliant).
     backbone = timm.create_model(MODEL_NAME, pretrained=True, num_classes=0, img_size=img_size)
@@ -154,5 +182,5 @@ def build_lora_model(num_classes: int, rank: int, alpha: float, lora_dropout: fl
     head = CosineClassifier(backbone.num_features, num_classes, dropout=0.0)
     if head_state is not None:
         head.load_state_dict(head_state)
-    model = LoraClassifier(backbone, head, feat_fuse=feat_fuse).to(device)
+    model = LoraClassifier(backbone, head, feat_fuse=feat_fuse, attn_pool=attn_pool).to(device)
     return model

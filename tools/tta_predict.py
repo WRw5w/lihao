@@ -56,7 +56,8 @@ def collect_tta_logits(args, device):
     model = build_lora_model(len(class_names), t.get("lora_rank", 16), t.get("lora_alpha", 32.0),
                              0.0, None, device, lora_blocks=t.get("lora_blocks", 12),
                              lora_target=t.get("lora_target", "attn"), img_size=img_size,
-                             peft=t.get("peft", "lora"), feat_fuse=t.get("feat_fuse", 0))
+                             peft=t.get("peft", "lora"), feat_fuse=t.get("feat_fuse", 0),
+                             attn_pool=t.get("attn_pool", False))
     model.load_state_dict(ckpt["model"])
     model.eval()
     scales = [int(s) for s in args.scales.split(",")]

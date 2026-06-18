@@ -1,24 +1,25 @@
 #!/usr/bin/env bash
-# Orthogonal probe wave 3: multi-layer feature fusion (#41). Fuses the CLS tokens
-# of the last K transformer blocks (learnable softmax weights) instead of only the
-# last layer -- directly tests whether the frozen-B/32 *feature* ceiling (not the
-# head) is what caps every line at ~76. Two发: fuse last-4, fuse last-6.
-# Compliant (single model, single inference, dim unchanged). Smoke-guard first.
+# Orthogonal probe wave 4 (breadth +3, 2026-06-18): three NEW families distinct
+# from waves 1-3 (loss/mixup/dora/cleanlab/fuse).
+#   attnpool   : attention-pool last-block patch tokens (learned query) vs CLS (#42, feature-usage)
+#   mmixup     : Manifold Mixup -- mix features not inputs (#31, feature-space reg)
+#   curriculum : reliability curriculum, clean->noisy staging across epochs (#34)
+# Each run self-smokes with its exact flags on GPU first (waves 1-3 done -> GPU free)
+# and is skipped if the smoke fails, so one broken path can't kill the others.
+# Champion recipe + full TTA + balance; auto-drop to next_queue.
 set -u
 cd /d/02_Projects/ML/jinyinsai || exit 1
 PY=/d/04_Tools/Python/python.exe
-MASTER=exp_pipelines/ortho_v3.log
+MASTER=exp_pipelines/ortho_v4.log
 : > "$MASTER"
-
-echo "[v3] smoke-guard feat-fuse path..." | tee -a "$MASTER"
-$PY -u finetune_lora.py --smoke --work-dir outputs_tmp --cache-dir outputs/cache \
-  --num-workers 2 --no-pin --batch-size 64 --feat-fuse 4 > exp_pipelines/ortho_v3_smoke.log 2>&1
-if [ $? -ne 0 ]; then echo "[v3] SMOKE FAILED -- abort"; tail -6 exp_pipelines/ortho_v3_smoke.log | tee -a "$MASTER"; exit 1; fi
-echo "[v3] smoke ok" | tee -a "$MASTER"
 
 run_one() {
   name=$1; shift; extra="$*"
   wd="outputs_ortho_$name"; log="exp_pipelines/ortho_${name}.log"
+  echo "[$name] smoke-guard ($extra)..." | tee -a "$MASTER"
+  $PY -u finetune_lora.py --smoke --work-dir outputs_tmp --cache-dir outputs/cache \
+    --num-workers 2 --no-pin --batch-size 64 $extra > "exp_pipelines/ortho_${name}_smoke.log" 2>&1
+  if [ $? -ne 0 ]; then echo "[$name] SMOKE FAILED -- skip"; tail -5 "exp_pipelines/ortho_${name}_smoke.log" | tee -a "$MASTER"; return; fi
   echo "[$name] ===== TRAIN extra: $extra =====" | tee -a "$MASTER"
   $PY -u finetune_lora.py \
     --work-dir "$wd" --cache-dir outputs/cache --img-size 448 --epochs 6 --batch-size 32 \
@@ -45,9 +46,8 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>" 2>&1 | tail -1
   echo "[$name] DONE $best  (-> next_queue)" | tee -a "$MASTER"
 }
 
-run_one fuse4 --feat-fuse 4
-run_one fuse6 --feat-fuse 6
-echo "[ortho_v3] ALL DONE" | tee -a "$MASTER"
+run_one attnpool   --attn-pool
+run_one mmixup     --manifold-mixup 0.2
+run_one curriculum --curriculum --curriculum-start 0.5
+echo "[ortho_v4] ALL DONE" | tee -a "$MASTER"
 git push 2>&1 | tail -1
-# chain wave 4 (breadth +3: attnpool / manifold-mixup / curriculum)
-bash exp_pipelines/ortho_v4.sh

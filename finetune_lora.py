@@ -257,7 +257,7 @@ def train(args) -> None:
     model = build_lora_model(num_classes, args.lora_rank, args.lora_alpha, args.lora_dropout,
                              prep["teacher_head_state"], device, lora_blocks=args.lora_blocks,
                              lora_target=args.lora_target, img_size=args.img_size, peft=args.peft,
-                             feat_fuse=args.feat_fuse)
+                             feat_fuse=args.feat_fuse, attn_pool=args.attn_pool)
     train_tf, eval_tf = build_finetune_transforms(model.backbone, args.crop_min_scale,
                                                   img_size=args.img_size, randaug=args.randaug)
     n_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -335,34 +335,55 @@ def train(args) -> None:
         model.train()
         t0 = time.time()
         tot_loss, tot_seen = 0.0, 0
+        # reliability curriculum: per-epoch threshold drops from a high quantile
+        # (train only on the most reliable samples first) to 0 (use all by the end).
+        thr_e = 0.0
+        if args.curriculum:
+            pos_w = weights_all[tr_idx_gpu]
+            pos_w = pos_w[pos_w > 0]
+            frac = args.curriculum_start * (1.0 - (epoch - 1) / max(1, args.epochs - 1))
+            thr_e = float(torch.quantile(pos_w, frac)) if frac > 1e-6 else 0.0
         for images, idx in train_loader:
             images = images.to(device, non_blocking=True)
             gidx = tr_idx_gpu[idx.to(device)]
             tb = target_labels_all[gidx]
             wb = weights_all[gidx]
+            if thr_e > 0:
+                wb = wb * (wb >= thr_e).to(wb.dtype)
             opt.zero_grad(set_to_none=True)
             perm = None
-            if args.mixup_alpha > 0:
+            if args.mixup_alpha > 0 and args.manifold_mixup == 0:
                 # Mixup (Zhang 2018): convex-combine inputs + targets -> a strong
                 # label-noise smoother, orthogonal to the kNN denoising pipeline.
                 lam = float(np.random.beta(args.mixup_alpha, args.mixup_alpha))
                 perm = torch.randperm(images.size(0), device=device)
                 images = lam * images + (1.0 - lam) * images[perm]
             with torch.autocast("cuda", dtype=torch.float16):
-                logits = model(images)
-                if perm is not None:
-                    loss_vec = lam * _loss_vec(logits, tb, args) + (1.0 - lam) * _loss_vec(logits, tb[perm], args)
-                    wb = lam * wb + (1.0 - lam) * wb[perm]
-                elif args.robust_loss != "ce":
-                    loss_vec = _loss_vec(logits, tb, args)
+                if args.manifold_mixup > 0:
+                    # Manifold Mixup (Verma 2019): mix the *feature* representation
+                    # instead of the input -> flatter, noise-robust feature manifold.
+                    lam = float(np.random.beta(args.manifold_mixup, args.manifold_mixup))
+                    mperm = torch.randperm(images.size(0), device=device)
+                    feat = model.extract_feat(images)
+                    feat = lam * feat + (1.0 - lam) * feat[mperm]
+                    logits = model.head(F.normalize(feat.float(), dim=-1))
+                    loss_vec = lam * _loss_vec(logits, tb, args) + (1.0 - lam) * _loss_vec(logits, tb[mperm], args)
+                    wb = lam * wb + (1.0 - lam) * wb[mperm]
                 else:
-                    loss_vec = F.cross_entropy(
-                        logits, tb, reduction="none", label_smoothing=args.label_smoothing)
-                    if args.pseudo_soft_alpha > 0:
-                        ab = soft_alpha_all[gidx]
-                        ce_orig = F.cross_entropy(
-                            logits, labels_all[gidx], reduction="none", label_smoothing=args.label_smoothing)
-                        loss_vec = (1.0 - ab) * loss_vec + ab * ce_orig
+                    logits = model(images)
+                    if perm is not None:
+                        loss_vec = lam * _loss_vec(logits, tb, args) + (1.0 - lam) * _loss_vec(logits, tb[perm], args)
+                        wb = lam * wb + (1.0 - lam) * wb[perm]
+                    elif args.robust_loss != "ce":
+                        loss_vec = _loss_vec(logits, tb, args)
+                    else:
+                        loss_vec = F.cross_entropy(
+                            logits, tb, reduction="none", label_smoothing=args.label_smoothing)
+                        if args.pseudo_soft_alpha > 0:
+                            ab = soft_alpha_all[gidx]
+                            ce_orig = F.cross_entropy(
+                                logits, labels_all[gidx], reduction="none", label_smoothing=args.label_smoothing)
+                            loss_vec = (1.0 - ab) * loss_vec + ab * ce_orig
                 loss = (loss_vec * wb).sum() / wb.sum().clamp_min(1e-6)
             scaler.scale(loss).backward()
             scaler.unscale_(opt)
@@ -439,7 +460,8 @@ def predict(args) -> None:
                              lora_target=targs.get("lora_target", args.lora_target),
                              img_size=targs.get("img_size", args.img_size),
                              peft=targs.get("peft", args.peft),
-                             feat_fuse=targs.get("feat_fuse", args.feat_fuse))
+                             feat_fuse=targs.get("feat_fuse", args.feat_fuse),
+                             attn_pool=targs.get("attn_pool", args.attn_pool))
     model.load_state_dict(ckpt["model"])
     model.eval()
     print(f"loaded {ckpt_path} (epoch {ckpt.get('epoch')})")
@@ -522,6 +544,14 @@ def parse_args():
                    help="dora = weight-decomposed LoRA (Liu 2024), strictly generalises lora")
     p.add_argument("--feat-fuse", type=int, default=0,
                    help="fuse CLS tokens of the last K transformer blocks (0=off=last layer only)")
+    p.add_argument("--attn-pool", action="store_true",
+                   help="pool last-block patch tokens with a learned attention query instead of CLS")
+    p.add_argument("--manifold-mixup", type=float, default=0.0,
+                   help="Manifold Mixup Beta(a,a) strength on features (0=off; mutually exclusive with --mixup-alpha)")
+    p.add_argument("--curriculum", action="store_true",
+                   help="reliability curriculum: train on most-reliable samples first, widen each epoch")
+    p.add_argument("--curriculum-start", type=float, default=0.5,
+                   help="curriculum: fraction of lowest-reliability samples excluded at epoch 1 (ramps to 0)")
     p.add_argument("--save-every", type=int, default=0,
                    help="also snapshot ep<N>.pt every N epochs (periodic anchors)")
     p.add_argument("--snapshot-after", type=int, default=0,
