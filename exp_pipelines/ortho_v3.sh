@@ -1,22 +1,20 @@
 #!/usr/bin/env bash
-# Orthogonal probe wave 2: Confident Learning (cleanlab #18) clean-set selection.
-# Replaces the kNN-agreement keep with a per-class confidence-threshold keep
-# derived from the teacher's full predictive distribution. Two发:
-#   cleanlab      : CL keep alone
-#   cleanlab_knn  : CL keep INTERSECT kNN keep (stricter clean set)
-# Same champion recipe + full TTA + balance as ortho_v1. Launch only after the
-# GPU is free (ortho_v1 done). First runs a --smoke guard; aborts if it fails.
+# Orthogonal probe wave 3: multi-layer feature fusion (#41). Fuses the CLS tokens
+# of the last K transformer blocks (learnable softmax weights) instead of only the
+# last layer -- directly tests whether the frozen-B/32 *feature* ceiling (not the
+# head) is what caps every line at ~76. Two发: fuse last-4, fuse last-6.
+# Compliant (single model, single inference, dim unchanged). Smoke-guard first.
 set -u
 cd /d/02_Projects/ML/jinyinsai || exit 1
 PY=/d/04_Tools/Python/python.exe
-MASTER=exp_pipelines/ortho_v2.log
+MASTER=exp_pipelines/ortho_v3.log
 : > "$MASTER"
 
-echo "[v2] smoke-guard cleanlab path..." | tee -a "$MASTER"
+echo "[v3] smoke-guard feat-fuse path..." | tee -a "$MASTER"
 $PY -u finetune_lora.py --smoke --work-dir outputs_tmp --cache-dir outputs/cache \
-  --num-workers 2 --no-pin --batch-size 64 --denoise cleanlab > exp_pipelines/ortho_v2_smoke.log 2>&1
-if [ $? -ne 0 ]; then echo "[v2] SMOKE FAILED -- abort"; tail -6 exp_pipelines/ortho_v2_smoke.log | tee -a "$MASTER"; exit 1; fi
-echo "[v2] smoke ok ($(grep -aoE 'cleanlab\[[a-z_]+\] keeps [0-9/]+ \([0-9.%]+\)' exp_pipelines/ortho_v2_smoke.log | head -1))" | tee -a "$MASTER"
+  --num-workers 2 --no-pin --batch-size 64 --feat-fuse 4 > exp_pipelines/ortho_v3_smoke.log 2>&1
+if [ $? -ne 0 ]; then echo "[v3] SMOKE FAILED -- abort"; tail -6 exp_pipelines/ortho_v3_smoke.log | tee -a "$MASTER"; exit 1; fi
+echo "[v3] smoke ok" | tee -a "$MASTER"
 
 run_one() {
   name=$1; shift; extra="$*"
@@ -29,8 +27,7 @@ run_one() {
     --label-smoothing 0.1 --num-workers 2 --no-pin --snapshot-after 3 \
     $extra > "$log" 2>&1
   best=$(grep -aoE 'mid_03_06=[0-9.]+' "$log" | sort -t= -k2 -rn | head -1)
-  keepln=$(grep -aoE 'cleanlab\[[a-z_]+\] keeps [0-9/]+ \([0-9.%]+\)' "$log" | head -1)
-  echo "[$name] train best $best  ($keepln)  (ref keep95=0.9233 -> 76.14)" | tee -a "$MASTER"
+  echo "[$name] train best $best  (ref keep95=0.9233 -> 76.14)" | tee -a "$MASTER"
   [ -f "$wd/lora/best.pt" ] || { echo "[$name] NO best.pt"; tail -5 "$log" | tee -a "$MASTER"; return; }
   cp -f "$wd/lora/best.pt" "$wd/lora/full.pt"
   $PY -u tools/tta_predict.py --work-dir "$wd" \
@@ -46,9 +43,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>" 2>&1 | tail -1
   echo "[$name] DONE $best" | tee -a "$MASTER"
 }
 
-run_one cleanlab     --denoise cleanlab
-run_one cleanlabknn  --denoise cleanlab_knn
-echo "[ortho_v2] ALL DONE" | tee -a "$MASTER"
+run_one fuse4 --feat-fuse 4
+run_one fuse6 --feat-fuse 6
+echo "[ortho_v3] ALL DONE" | tee -a "$MASTER"
 git push 2>&1 | tail -1
-# chain wave 3 (feature fusion) once the GPU frees
-bash exp_pipelines/ortho_v3.sh
