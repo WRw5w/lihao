@@ -86,6 +86,36 @@ def fit_gmm_1d(x: torch.Tensor, iters: int = 50) -> torch.Tensor:
     return resp[:, clean_comp]
 
 
+@torch.inference_mode()
+def confident_learning_keep(
+    probs: torch.Tensor,
+    labels: torch.Tensor,
+    num_classes: int,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Confident Learning (Northcutt et al. 2021) clean-sample selection.
+
+    Per-class self-confidence threshold t_j = mean predicted prob assigned to
+    class j over samples *labelled* j. A sample is judged clean iff, among the
+    classes whose predicted prob clears their own threshold, the most-confident
+    one equals the sample's noisy label. Samples that clear no threshold are
+    uncertain (kept, conservative). Mechanism is orthogonal to kNN agreement:
+    it uses global per-class confidence structure, not local neighbour voting.
+
+    Returns (keep_mask, cl_pred) where cl_pred is the confident class (relabel target).
+    """
+    probs = probs.float()
+    t = torch.zeros(num_classes, device=probs.device)
+    for j in range(num_classes):
+        m = labels == j
+        if m.any():
+            t[j] = probs[m, j].mean()
+    above = probs >= t[None, :]
+    cl_pred = probs.masked_fill(~above, -1.0).argmax(1)
+    has_above = above.any(1)
+    keep = ((cl_pred == labels) & has_above) | (~has_above)
+    return keep, cl_pred
+
+
 def per_class_topk_keep(score: torch.Tensor, labels: torch.Tensor, num_classes: int, keep_ratio: float) -> torch.Tensor:
     """Keep top keep_ratio of each class by score; returns bool mask."""
     keep = torch.zeros_like(labels, dtype=torch.bool)

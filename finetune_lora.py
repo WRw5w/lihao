@@ -37,7 +37,12 @@ from torchvision.datasets import ImageFolder
 
 import config
 from robustft.data import IndexedImageDataset, build_finetune_transforms
-from robustft.denoise import knn_agreement, knn_majority_prediction, per_class_topk_keep
+from robustft.denoise import (
+    confident_learning_keep,
+    knn_agreement,
+    knn_majority_prediction,
+    per_class_topk_keep,
+)
 from robustft.engine import (
     seed_everything,
     stratified_split,
@@ -111,6 +116,18 @@ def prepare_targets(args, device, train_idx: torch.Tensor, val_idx: torch.Tensor
     p_label, preds_t, pmax_t, margins_t = teacher_stats(teacher, f32, y)
     knn_preds_tr = knn_majority_prediction(
         ftr, ftr, ytr, args.knn_k, num_classes, exclude_self=True)
+
+    if args.denoise != "knn":
+        # Confident Learning: re-select the clean set from the teacher's full
+        # predictive distribution (orthogonal to the kNN-agreement keep above).
+        cl_keep_tr, _ = confident_learning_keep(teacher(f32[tr]).softmax(1), ytr, num_classes)
+        if args.denoise == "cleanlab_knn":
+            cl_keep_tr = cl_keep_tr & keep_tr  # stricter: agree AND confident
+        keep_tr = cl_keep_tr
+        keep[tr] = keep_tr
+        idx_keep = torch.nonzero(keep, as_tuple=False).squeeze(1)
+        print(f"cleanlab[{args.denoise}] keeps {int(keep_tr.sum())}/{tr.numel()} "
+              f"({keep_tr.float().mean():.2%})")
 
     target_labels = y.clone()
     weights = torch.zeros(y.numel(), dtype=torch.float32, device=device)
@@ -467,6 +484,9 @@ def parse_args():
     p.add_argument("--num-workers", type=int, default=4)
     p.add_argument("--knn-k", type=int, default=16)
     p.add_argument("--keep-ratio", type=float, default=0.75)
+    p.add_argument("--denoise", choices=("knn", "cleanlab", "cleanlab_knn"), default="knn",
+                   help="clean-set selection: knn agreement (default), cleanlab "
+                        "(Confident Learning from teacher probs), or cleanlab_knn (intersection)")
     p.add_argument("--pseudo-thresh", type=float, default=0.7)
     p.add_argument("--pseudo-margin", type=float, default=0.2)
     p.add_argument("--high-agreement-floor", type=float, default=0.7)
