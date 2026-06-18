@@ -17,6 +17,9 @@ $PY -u finetune_lora.py --smoke --work-dir outputs_tmp --cache-dir outputs/cache
   --num-workers 2 --no-pin --batch-size 64 --denoise cleanlab > exp_pipelines/ortho_v2_smoke.log 2>&1
 if [ $? -ne 0 ]; then echo "[v2] SMOKE FAILED -- abort"; tail -6 exp_pipelines/ortho_v2_smoke.log | tee -a "$MASTER"; exit 1; fi
 echo "[v2] smoke ok ($(grep -aoE 'cleanlab\[[a-z_]+\] keeps [0-9/]+ \([0-9.%]+\)' exp_pipelines/ortho_v2_smoke.log | head -1))" | tee -a "$MASTER"
+# v1 已全部完成(本脚本由链等待器在 v1 done 后启动) -> 把 v1 所有 ortho 候选也补投 next_queue
+cp -f submissions/pred_results_ortho_*_tta_balanced.zip submissions/pred_results_ortho_*_tta_balanced.csv submissions/next_queue/ 2>/dev/null
+echo "[v2] swept v1 ortho candidates into next_queue" | tee -a "$MASTER"
 
 run_one() {
   name=$1; shift; extra="$*"
@@ -43,7 +46,9 @@ run_one() {
   git commit -q -m "ortho probe $name: val $best [extra: $extra]
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>" 2>&1 | tail -1
-  echo "[$name] DONE $best" | tee -a "$MASTER"
+  cp -f "submissions/pred_results_ortho_${name}_tta_balanced.zip" \
+        "submissions/pred_results_ortho_${name}_tta_balanced.csv" submissions/next_queue/ 2>/dev/null
+  echo "[$name] DONE $best  (-> next_queue)" | tee -a "$MASTER"
 }
 
 run_one cleanlab     --denoise cleanlab

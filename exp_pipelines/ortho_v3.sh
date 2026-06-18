@@ -40,7 +40,9 @@ run_one() {
   git commit -q -m "ortho probe $name: val $best [extra: $extra]
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>" 2>&1 | tail -1
-  echo "[$name] DONE $best" | tee -a "$MASTER"
+  cp -f "submissions/pred_results_ortho_${name}_tta_balanced.zip" \
+        "submissions/pred_results_ortho_${name}_tta_balanced.csv" submissions/next_queue/ 2>/dev/null
+  echo "[$name] DONE $best  (-> next_queue)" | tee -a "$MASTER"
 }
 
 run_one fuse4 --feat-fuse 4
