@@ -1,0 +1,28 @@
+kNN filter keeps 83401/103218 (80.80%)
+targets ready: 83485 usable samples (84 consensus pseudo-labelled)
+train images 83485  val images 10285
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+trainable params: 5.10M
+D:\02_Projects\ML\jinyinsai\finetune_lora.py:393: UserWarning: Detected call of `lr_scheduler.step()` before `optimizer.step()`. In PyTorch 1.1.0 and later, you should call them in the opposite order: `optimizer.step()` before `lr_scheduler.step()`.  Failure to do this will result in PyTorch skipping the first value of the learning rate schedule. See more details at https://pytorch.org/docs/stable/optim.html#how-to-adjust-learning-rate
+  sched.step()
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+D:\04_Tools\Python\Lib\site-packages\PIL\TiffImagePlugin.py:949: UserWarning: Corrupt EXIF data.  Expecting to read 4 bytes but only got 2. 
+  warnings.warn(str(msg))
+epoch 01/6 loss=2.1938 time=699s  noisy_all=0.6968  low_lt03=0.3809  mid_03_06=0.8406  high_ge06=0.9924  *best*
+epoch 02/6 loss=1.6847 time=685s  noisy_all=0.7445  low_lt03=0.4571  mid_03_06=0.8979  high_ge06=0.9952  *best*
+epoch 03/6 loss=1.4943 time=689s  noisy_all=0.7663  low_lt03=0.4972  mid_03_06=0.9158  high_ge06=0.9961  *best*  [snap]
+epoch 04/6 loss=1.3413 time=679s  noisy_all=0.78  low_lt03=0.5232  mid_03_06=0.9263  high_ge06=0.9964  *best*  [snap]
+epoch 05/6 loss=1.2248 time=684s  noisy_all=0.7841  low_lt03=0.5346  mid_03_06=0.9244  high_ge06=0.9958
+epoch 06/6 loss=1.1626 time=677s  noisy_all=0.7833  low_lt03=0.5332  mid_03_06=0.9244  high_ge06=0.9952
+done
+loaded outputs_ortho_fuse6\lora\full.pt (epoch 4), img_size=448, scales=[448, 512, 576] x flip
+  scale 448 done
+  scale 512 done
+  scale 576 done
+tta          dist: min=3 max=169 std=19.4
+tta_balanced       dist: min=44 max=54 std=1.3  (changed 4346)
+saved submissions\pred_results_ortho_fuse6_tta.csv and submissions\pred_results_ortho_fuse6_tta.zip
+saved submissions\pred_results_ortho_fuse6_tta_balanced.csv and submissions\pred_results_ortho_fuse6_tta_balanced.zip
