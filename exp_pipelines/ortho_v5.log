@@ -1,0 +1,13 @@
+[v5] === cleanlabsoup ===
+souped 4 checkpoints -> outputs_ortho_cleanlabsoup\lora\full.pt
+  sources: best.pt, best_ep04.pt, best_ep03.pt, last.pt
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+loaded outputs_ortho_cleanlabsoup\lora\full.pt (epoch swa), img_size=448, scales=[448, 512, 576] x flip
+  scale 448 done
+  scale 512 done
+  scale 576 done
+tta          dist: min=0 max=198 std=18.6
+tta_balanced       dist: min=46 max=54 std=1.3  (changed 3958)
+saved submissions\pred_results_ortho_cleanlabsoup_tta.csv and submissions\pred_results_ortho_cleanlabsoup_tta.zip
+saved submissions\pred_results_ortho_cleanlabsoup_tta_balanced.csv and submissions\pred_results_ortho_cleanlabsoup_tta_balanced.zip
+RESULT: PASS
