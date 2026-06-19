@@ -11,3 +11,16 @@ tta_balanced       dist: min=46 max=54 std=1.3  (changed 3958)
 saved submissions\pred_results_ortho_cleanlabsoup_tta.csv and submissions\pred_results_ortho_cleanlabsoup_tta.zip
 saved submissions\pred_results_ortho_cleanlabsoup_tta_balanced.csv and submissions\pred_results_ortho_cleanlabsoup_tta_balanced.zip
 RESULT: PASS
+[cleanlabsoup] -> next_queue
+[clmix] TRAIN --denoise cleanlab --mixup-alpha 0.2
+[clmix] best mid_03_06=0.9181
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+loaded outputs_ortho_clmix\lora\full.pt (epoch 6), img_size=448, scales=[448, 512, 576] x flip
+  scale 448 done
+  scale 512 done
+  scale 576 done
+tta          dist: min=0 max=170 std=18.0
+tta_balanced       dist: min=45 max=56 std=1.3  (changed 3916)
+saved submissions\pred_results_ortho_clmix_tta.csv and submissions\pred_results_ortho_clmix_tta.zip
+saved submissions\pred_results_ortho_clmix_tta_balanced.csv and submissions\pred_results_ortho_clmix_tta_balanced.zip
+RESULT: PASS
