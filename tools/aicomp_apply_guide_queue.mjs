@@ -27,6 +27,7 @@ const GUIDE_ORDER = [
   "pred_results_ortho_cl2soup_tta_balanced.zip",
   "pred_results_ortho_cl4soup_tta_balanced.zip",
   "pred_results_ortho_cleanlab_s2_tta_balanced.zip",
+  "pred_results_ortho_clrelabel_tta_balanced.zip",
   "pred_results_soup_v3_tta_balanced.zip",
   "pred_results_soup_sweep_tta_balanced_s0.5.zip",
   "pred_results_soup_sweep_tta_balanced_s0.25.zip",
