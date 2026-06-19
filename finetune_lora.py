@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import math
 import time
 from pathlib import Path
 
@@ -33,15 +34,19 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
+from torchvision import transforms
 from torchvision.datasets import ImageFolder
 
 import config
 from robustft.data import IndexedImageDataset, build_finetune_transforms
 from robustft.denoise import (
     confident_learning_keep,
+    fit_gmm_1d,
     knn_agreement,
     knn_majority_prediction,
+    label_propagation,
     per_class_topk_keep,
+    sinkhorn_balance,
 )
 from robustft.engine import (
     seed_everything,
@@ -118,21 +123,41 @@ def prepare_targets(args, device, train_idx: torch.Tensor, val_idx: torch.Tensor
         ftr, ftr, ytr, args.knn_k, num_classes, exclude_self=True)
 
     cl_relabel_info = None
+    if args.denoise in ("cleanlab", "cleanlab_knn", "cleanlab_relabel", "ot", "otknn"):
+        # Confident Learning on teacher probs. "ot": first Sinkhorn-balance the
+        # probs to the uniform test prior (exploit balanced-test) before selection.
+        P = teacher(f32[tr]).softmax(1)
+        if args.denoise in ("ot", "otknn"):
+            P = sinkhorn_balance(P, iters=args.ot_iters)
+        ck, cp, cc, ca = confident_learning_keep(P, ytr, num_classes)
+        if args.denoise in ("cleanlab_knn", "otknn"):
+            ck = ck & keep_tr  # stricter: agree AND confident
+        if args.denoise in ("cleanlab_relabel", "ot", "otknn"):
+            cl_relabel_info = (cp, cc, ca & (cp != ytr))  # relabel confident-wrong
+        keep_tr = ck
+    elif args.denoise == "labelprop":
+        # propagate labels on the feature kNN graph from high-agreement anchors;
+        # keep where propagation agrees with the label, relabel confident-disagree.
+        anchors = torch.nonzero(agree[tr] >= args.lp_anchor_agree, as_tuple=False).squeeze(1)
+        Z = label_propagation(F.normalize(f32[tr], dim=1), ytr, anchors, num_classes,
+                              k=args.knn_k, alpha=args.lp_alpha)
+        zp, zc = Z.argmax(1), Z.max(1).values
+        has = Z.sum(1) > 1e-6
+        keep_tr = ((zp == ytr) & has) | (~has)
+        cl_relabel_info = (zp, zc, has & (zp != ytr))
+    elif args.denoise == "divmix":
+        # DivideMix-lite: GMM on per-sample teacher loss splits clean/noisy; noisy
+        # samples are relabelled to the teacher prediction (semi-supervised co-refine).
+        P = teacher(f32[tr]).softmax(1)
+        ce = -(P.gather(1, ytr[:, None]).squeeze(1).clamp_min(1e-8).log())
+        clean_prob = fit_gmm_1d(ce)
+        keep_tr = clean_prob >= args.divmix_thresh
+        tp, tc = P.argmax(1), P.max(1).values
+        cl_relabel_info = (tp, tc * (1 - clean_prob), (clean_prob < args.divmix_thresh) & (tp != ytr))
     if args.denoise != "knn":
-        # Confident Learning: re-select the clean set from the teacher's full
-        # predictive distribution (orthogonal to the kNN-agreement keep above).
-        cl_keep_tr, cl_pred_tr, cl_conf_tr, cl_has_above = confident_learning_keep(
-            teacher(f32[tr]).softmax(1), ytr, num_classes)
-        if args.denoise == "cleanlab_knn":
-            cl_keep_tr = cl_keep_tr & keep_tr  # stricter: agree AND confident
-        if args.denoise == "cleanlab_relabel":
-            # confident-wrong samples: instead of dropping, relabel to the CL-
-            # predicted class (recover ~8% data with corrected labels).
-            cl_relabel_info = (cl_pred_tr, cl_conf_tr, cl_has_above & (cl_pred_tr != ytr))
-        keep_tr = cl_keep_tr
         keep[tr] = keep_tr
         idx_keep = torch.nonzero(keep, as_tuple=False).squeeze(1)
-        print(f"cleanlab[{args.denoise}] keeps {int(keep_tr.sum())}/{tr.numel()} "
+        print(f"denoise[{args.denoise}] keeps {int(keep_tr.sum())}/{tr.numel()} "
               f"({keep_tr.float().mean():.2%})")
 
     target_labels = y.clone()
@@ -194,6 +219,15 @@ def prepare_targets(args, device, train_idx: torch.Tensor, val_idx: torch.Tensor
             weights[ridx] = cl_conf_tr[relabel_tr].clamp(0, 1)
             soft_alpha[ridx] = 0.0  # hard-use the corrected label
             relabel_count = int(relabel_tr.sum())
+    if args.class_balance:
+        # counter noise-induced class imbalance: scale weights by inverse class
+        # frequency (of the final used set) to the cb_power.
+        used_m = weights > 0
+        cnt = torch.bincount(target_labels[used_m], minlength=num_classes).clamp_min(1).float()
+        cls_w = (cnt.mean() / cnt).pow(args.cb_power)
+        weights = weights * cls_w[target_labels]
+        print(f"class-balance(power={args.cb_power}): weight ratio max/min = "
+              f"{cls_w.max() / cls_w.min():.2f}")
     pseudo_count = int(pseudo_tr.sum())
     print(f"targets ready: {int((weights > 0).sum())} usable samples "
           f"({pseudo_count} consensus pseudo-labelled, {relabel_count} CL-relabelled)")
@@ -278,6 +312,9 @@ def train(args) -> None:
                              feat_fuse=args.feat_fuse, attn_pool=args.attn_pool)
     train_tf, eval_tf = build_finetune_transforms(model.backbone, args.crop_min_scale,
                                                   img_size=args.img_size, randaug=args.randaug)
+    if args.random_erasing:
+        # RandomErasing (Zhong 2020): occlude a random rectangle -> occlusion-robust.
+        train_tf = transforms.Compose([train_tf, transforms.RandomErasing(p=0.25)])
     n_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"trainable params: {n_trainable / 1e6:.2f}M")
     ema_model = None
@@ -376,6 +413,19 @@ def train(args) -> None:
                 lam = float(np.random.beta(args.mixup_alpha, args.mixup_alpha))
                 perm = torch.randperm(images.size(0), device=device)
                 images = lam * images + (1.0 - lam) * images[perm]
+            elif args.cutmix > 0 and args.manifold_mixup == 0:
+                # CutMix (Yun 2019): paste a random patch from another image; the
+                # label mix is the patch area fraction.
+                lam = float(np.random.beta(args.cutmix, args.cutmix))
+                perm = torch.randperm(images.size(0), device=device)
+                H, W = images.shape[-2:]
+                r = math.sqrt(1.0 - lam)
+                rh, rw = int(H * r), int(W * r)
+                cy, cx = np.random.randint(H), np.random.randint(W)
+                y1, y2 = max(0, cy - rh // 2), min(H, cy + rh // 2)
+                x1, x2 = max(0, cx - rw // 2), min(W, cx + rw // 2)
+                images[:, :, y1:y2, x1:x2] = images[perm][:, :, y1:y2, x1:x2]
+                lam = 1.0 - ((y2 - y1) * (x2 - x1) / (H * W))
             with torch.autocast("cuda", dtype=torch.float16):
                 if args.manifold_mixup > 0:
                     # Manifold Mixup (Verma 2019): mix the *feature* representation
@@ -526,10 +576,19 @@ def parse_args():
     p.add_argument("--num-workers", type=int, default=4)
     p.add_argument("--knn-k", type=int, default=16)
     p.add_argument("--keep-ratio", type=float, default=0.75)
-    p.add_argument("--denoise", choices=("knn", "cleanlab", "cleanlab_knn", "cleanlab_relabel"), default="knn",
-                   help="clean-set selection: knn agreement (default), cleanlab "
-                        "(Confident Learning), cleanlab_knn (intersection), or "
-                        "cleanlab_relabel (CL + relabel confident-wrong to predicted class)")
+    p.add_argument("--denoise", default="knn",
+                   choices=("knn", "cleanlab", "cleanlab_knn", "cleanlab_relabel",
+                            "ot", "otknn", "labelprop", "divmix"),
+                   help="clean-set selection: knn; cleanlab(*); ot=Sinkhorn-balance probs then CL; "
+                        "otknn=ot∩knn; labelprop=feature-graph propagation; divmix=GMM loss-split co-refine")
+    p.add_argument("--ot-iters", type=int, default=30, help="Sinkhorn iterations for ot/otknn")
+    p.add_argument("--lp-alpha", type=float, default=0.8, help="label-propagation diffusion weight")
+    p.add_argument("--lp-anchor-agree", type=float, default=0.6, help="kNN-agreement floor to be a propagation anchor")
+    p.add_argument("--divmix-thresh", type=float, default=0.5, help="GMM clean-posterior threshold for divmix keep")
+    p.add_argument("--class-balance", action="store_true", help="scale sample weights by inverse class frequency")
+    p.add_argument("--cb-power", type=float, default=0.5, help="class-balance exponent (0=off..1=full inverse-freq)")
+    p.add_argument("--cutmix", type=float, default=0.0, help="CutMix Beta(a,a) strength (0=off; mutually exclusive w/ mixup)")
+    p.add_argument("--random-erasing", action="store_true", help="append RandomErasing(p=0.25) to train augmentation")
     p.add_argument("--pseudo-thresh", type=float, default=0.7)
     p.add_argument("--pseudo-margin", type=float, default=0.2)
     p.add_argument("--high-agreement-floor", type=float, default=0.7)

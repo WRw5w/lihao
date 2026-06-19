@@ -121,6 +121,56 @@ def confident_learning_keep(
     return keep, cl_pred, cl_conf, has_above
 
 
+@torch.inference_mode()
+def sinkhorn_balance(probs: torch.Tensor, iters: int = 30) -> torch.Tensor:
+    """Sinkhorn-Knopp: rescale a (N,C) prob matrix so column marginals are uniform
+    (each class gets ~N/C mass), exploiting the known balanced test prior. Returns
+    a refined per-sample distribution. Rows are renormalised to sum to 1."""
+    p = probs.float().clamp_min(1e-8)
+    n, c = p.shape
+    col_target = n / c
+    for _ in range(iters):
+        p = p / p.sum(1, keepdim=True)                       # row-normalise
+        p = p * (col_target / p.sum(0, keepdim=True).clamp_min(1e-8))  # col-balance
+    return p / p.sum(1, keepdim=True).clamp_min(1e-8)
+
+
+@torch.inference_mode()
+def label_propagation(
+    features: torch.Tensor,
+    labels: torch.Tensor,
+    anchors: torch.Tensor,
+    num_classes: int,
+    k: int = 16,
+    alpha: float = 0.8,
+    iters: int = 20,
+    chunk: int = 2048,
+) -> torch.Tensor:
+    """Iterative label propagation on the feature kNN graph. Anchor (trusted)
+    samples inject their one-hot label each step; labels diffuse to neighbours.
+    features L2-normalised. Returns (N,C) propagated label distribution."""
+    n = labels.size(0)
+    seed = torch.zeros(n, num_classes, device=features.device)
+    seed[anchors, labels[anchors]] = 1.0
+    z = seed.clone()
+    g = features.t().contiguous()
+    # precompute sparse-ish kNN (indices + weights) per chunk, reused each iter
+    nbr_idx = torch.empty(n, k, dtype=torch.long, device=features.device)
+    nbr_w = torch.empty(n, k, device=features.device)
+    for s in range(0, n, chunk):
+        e = min(s + chunk, n)
+        sim = features[s:e] @ g
+        sim[torch.arange(e - s, device=sim.device), torch.arange(s, e, device=sim.device)] = -2.0
+        w, i = sim.topk(k, dim=1)
+        nbr_idx[s:e], nbr_w[s:e] = i, w.float().clamp_min(0)
+    nbr_w = nbr_w / nbr_w.sum(1, keepdim=True).clamp_min(1e-8)
+    for _ in range(iters):
+        agg = (z[nbr_idx] * nbr_w.unsqueeze(-1)).sum(1)      # neighbour-averaged
+        z = alpha * agg + (1 - alpha) * seed
+        z[anchors] = seed[anchors]                            # clamp anchors
+    return z
+
+
 def per_class_topk_keep(score: torch.Tensor, labels: torch.Tensor, num_classes: int, keep_ratio: float) -> torch.Tensor:
     """Keep top keep_ratio of each class by score; returns bool mask."""
     keep = torch.zeros_like(labels, dtype=torch.bool)
