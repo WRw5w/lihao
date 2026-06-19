@@ -24,3 +24,19 @@ tta_balanced       dist: min=45 max=56 std=1.3  (changed 3916)
 saved submissions\pred_results_ortho_clmix_tta.csv and submissions\pred_results_ortho_clmix_tta.zip
 saved submissions\pred_results_ortho_clmix_tta_balanced.csv and submissions\pred_results_ortho_clmix_tta_balanced.zip
 RESULT: PASS
+[clmix] -> next_queue
+[cleanlab_s2] TRAIN --denoise cleanlab --seed 123
+[cleanlab_s2] best mid_03_06=0.9205
+[v5] === cl2soup (cross-seed) ===
+souped 4 checkpoints -> outputs_ortho_cl2soup\lora\full.pt
+  sources: best.pt, last.pt, best.pt, last.pt
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+loaded outputs_ortho_cl2soup\lora\full.pt (epoch swa), img_size=448, scales=[448, 512, 576] x flip
+  scale 448 done
+  scale 512 done
+  scale 576 done
+tta          dist: min=0 max=203 std=29.7
+tta_balanced       dist: min=45 max=55 std=1.5  (changed 6131)
+saved submissions\pred_results_ortho_cl2soup_tta.csv and submissions\pred_results_ortho_cl2soup_tta.zip
+saved submissions\pred_results_ortho_cl2soup_tta_balanced.csv and submissions\pred_results_ortho_cl2soup_tta_balanced.zip
+RESULT: PASS
