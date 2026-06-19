@@ -117,12 +117,18 @@ def prepare_targets(args, device, train_idx: torch.Tensor, val_idx: torch.Tensor
     knn_preds_tr = knn_majority_prediction(
         ftr, ftr, ytr, args.knn_k, num_classes, exclude_self=True)
 
+    cl_relabel_info = None
     if args.denoise != "knn":
         # Confident Learning: re-select the clean set from the teacher's full
         # predictive distribution (orthogonal to the kNN-agreement keep above).
-        cl_keep_tr, _ = confident_learning_keep(teacher(f32[tr]).softmax(1), ytr, num_classes)
+        cl_keep_tr, cl_pred_tr, cl_conf_tr, cl_has_above = confident_learning_keep(
+            teacher(f32[tr]).softmax(1), ytr, num_classes)
         if args.denoise == "cleanlab_knn":
             cl_keep_tr = cl_keep_tr & keep_tr  # stricter: agree AND confident
+        if args.denoise == "cleanlab_relabel":
+            # confident-wrong samples: instead of dropping, relabel to the CL-
+            # predicted class (recover ~8% data with corrected labels).
+            cl_relabel_info = (cl_pred_tr, cl_conf_tr, cl_has_above & (cl_pred_tr != ytr))
         keep_tr = cl_keep_tr
         keep[tr] = keep_tr
         idx_keep = torch.nonzero(keep, as_tuple=False).squeeze(1)
@@ -176,9 +182,21 @@ def prepare_targets(args, device, train_idx: torch.Tensor, val_idx: torch.Tensor
         # soft fusion: keep alpha of the original label instead of hard-replacing
         # (conservative: don't fully trust the pseudo-label).
         soft_alpha[pseudo_idx] = args.pseudo_soft_alpha
+    relabel_count = 0
+    if cl_relabel_info is not None:
+        # Confident-Learning relabel: confident-wrong samples get the CL-predicted
+        # class with a confidence weight (overrides the consensus-pseudo path above
+        # for these samples). Recovers corrected data instead of discarding it.
+        cl_pred_tr, cl_conf_tr, relabel_tr = cl_relabel_info
+        if relabel_tr.any():
+            ridx = tr[relabel_tr]
+            target_labels[ridx] = cl_pred_tr[relabel_tr]
+            weights[ridx] = cl_conf_tr[relabel_tr].clamp(0, 1)
+            soft_alpha[ridx] = 0.0  # hard-use the corrected label
+            relabel_count = int(relabel_tr.sum())
     pseudo_count = int(pseudo_tr.sum())
     print(f"targets ready: {int((weights > 0).sum())} usable samples "
-          f"({pseudo_count} consensus pseudo-labelled)")
+          f"({pseudo_count} consensus pseudo-labelled, {relabel_count} CL-relabelled)")
     return {
         "target_labels": target_labels.cpu(), "weights": weights.cpu(), "labels": labels,
         "class_names": class_names, "image_names": image_names,
@@ -508,9 +526,10 @@ def parse_args():
     p.add_argument("--num-workers", type=int, default=4)
     p.add_argument("--knn-k", type=int, default=16)
     p.add_argument("--keep-ratio", type=float, default=0.75)
-    p.add_argument("--denoise", choices=("knn", "cleanlab", "cleanlab_knn"), default="knn",
+    p.add_argument("--denoise", choices=("knn", "cleanlab", "cleanlab_knn", "cleanlab_relabel"), default="knn",
                    help="clean-set selection: knn agreement (default), cleanlab "
-                        "(Confident Learning from teacher probs), or cleanlab_knn (intersection)")
+                        "(Confident Learning), cleanlab_knn (intersection), or "
+                        "cleanlab_relabel (CL + relabel confident-wrong to predicted class)")
     p.add_argument("--pseudo-thresh", type=float, default=0.7)
     p.add_argument("--pseudo-margin", type=float, default=0.2)
     p.add_argument("--high-agreement-floor", type=float, default=0.7)

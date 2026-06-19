@@ -101,7 +101,11 @@ def confident_learning_keep(
     uncertain (kept, conservative). Mechanism is orthogonal to kNN agreement:
     it uses global per-class confidence structure, not local neighbour voting.
 
-    Returns (keep_mask, cl_pred) where cl_pred is the confident class (relabel target).
+    Returns (keep_mask, cl_pred, cl_conf, has_above):
+      cl_pred   - the confident class (relabel target for confident-wrong samples),
+      cl_conf   - predicted prob at cl_pred (confidence weight for relabeling),
+      has_above - whether any class cleared its threshold (False = uncertain).
+    Confident-wrong = has_above & (cl_pred != label): the samples worth relabelling.
     """
     probs = probs.float()
     t = torch.zeros(num_classes, device=probs.device)
@@ -111,9 +115,10 @@ def confident_learning_keep(
             t[j] = probs[m, j].mean()
     above = probs >= t[None, :]
     cl_pred = probs.masked_fill(~above, -1.0).argmax(1)
+    cl_conf = probs.gather(1, cl_pred.unsqueeze(1)).squeeze(1)
     has_above = above.any(1)
     keep = ((cl_pred == labels) & has_above) | (~has_above)
-    return keep, cl_pred
+    return keep, cl_pred, cl_conf, has_above
 
 
 def per_class_topk_keep(score: torch.Tensor, labels: torch.Tensor, num_classes: int, keep_ratio: float) -> torch.Tensor:
