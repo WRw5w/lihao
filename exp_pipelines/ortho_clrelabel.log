@@ -1,0 +1,22 @@
+kNN filter keeps 83401/103218 (80.80%)
+cleanlab[cleanlab_relabel] keeps 85352/92933 (91.84%)
+targets ready: 92933 usable samples (186 consensus pseudo-labelled, 7581 CL-relabelled)
+train images 92933  val images 10285
+trainable params: 5.10M
+D:\02_Projects\ML\jinyinsai\finetune_lora.py:411: UserWarning: Detected call of `lr_scheduler.step()` before `optimizer.step()`. In PyTorch 1.1.0 and later, you should call them in the opposite order: `optimizer.step()` before `lr_scheduler.step()`.  Failure to do this will result in PyTorch skipping the first value of the learning rate schedule. See more details at https://pytorch.org/docs/stable/optim.html#how-to-adjust-learning-rate
+  sched.step()
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+D:\04_Tools\Python\Lib\site-packages\PIL\TiffImagePlugin.py:949: UserWarning: Corrupt EXIF data.  Expecting to read 4 bytes but only got 2. 
+  warnings.warn(str(msg))
+epoch 01/6 loss=1.9699 time=1106s  noisy_all=0.7103  low_lt03=0.4016  mid_03_06=0.859  high_ge06=0.9924  *best*
+D:\04_Tools\Python\Lib\site-packages\PIL\TiffImagePlugin.py:949: UserWarning: Corrupt EXIF data.  Expecting to read 4 bytes but only got 2. 
+  warnings.warn(str(msg))
+epoch 02/6 loss=1.7378 time=1066s  noisy_all=0.7451  low_lt03=0.4647  mid_03_06=0.8889  high_ge06=0.9942  *best*
+epoch 03/6 loss=1.5610 time=1011s  noisy_all=0.7602  low_lt03=0.4909  mid_03_06=0.9042  high_ge06=0.9949  *best*  [snap]
+epoch 04/6 loss=1.4051 time=1124s  noisy_all=0.7655  low_lt03=0.5079  mid_03_06=0.9001  high_ge06=0.9924
+epoch 05/6 loss=1.2724 time=1151s  noisy_all=0.7717  low_lt03=0.5246  mid_03_06=0.8979  high_ge06=0.9918
+epoch 06/6 loss=1.2018 time=1131s  noisy_all=0.7691  low_lt03=0.519  mid_03_06=0.8964  high_ge06=0.9921
+done
