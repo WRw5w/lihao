@@ -1,0 +1,27 @@
+kNN filter keeps 83401/103218 (80.80%)
+targets ready: 83485 usable samples (84 consensus pseudo-labelled)
+train images 83485  val images 10285
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+trainable params: 5.10M
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+D:\04_Tools\Python\Lib\site-packages\PIL\TiffImagePlugin.py:949: UserWarning: Corrupt EXIF data.  Expecting to read 4 bytes but only got 2. 
+  warnings.warn(str(msg))
+epoch 01/6 loss=2.3367 time=739s  noisy_all=0.7106  low_lt03=0.4016  mid_03_06=0.8612  high_ge06=0.9918  *best*
+epoch 02/6 loss=2.0876 time=729s  noisy_all=0.7471  low_lt03=0.4631  mid_03_06=0.8971  high_ge06=0.9961  *best*
+epoch 03/6 loss=1.9155 time=726s  noisy_all=0.7689  low_lt03=0.5053  mid_03_06=0.9136  high_ge06=0.9955  *best*  [snap]
+epoch 04/6 loss=1.7941 time=785s  noisy_all=0.776  low_lt03=0.5172  mid_03_06=0.9207  high_ge06=0.9964  *best*  [snap]
+epoch 05/6 loss=1.6718 time=784s  noisy_all=0.7821  low_lt03=0.5288  mid_03_06=0.9267  high_ge06=0.9955  *best*  [snap]
+epoch 06/6 loss=1.5961 time=807s  noisy_all=0.7839  low_lt03=0.5334  mid_03_06=0.9263  high_ge06=0.9952
+done
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+loaded outputs_ortho_mmixup\lora\full.pt (epoch 5), img_size=448, scales=[448, 512, 576] x flip
+  scale 448 done
+  scale 512 done
+  scale 576 done
+tta          dist: min=2 max=176 std=18.9
+tta_balanced       dist: min=44 max=55 std=1.4  (changed 4224)
+saved submissions\pred_results_ortho_mmixup_tta.csv and submissions\pred_results_ortho_mmixup_tta.zip
+saved submissions\pred_results_ortho_mmixup_tta_balanced.csv and submissions\pred_results_ortho_mmixup_tta_balanced.zip
