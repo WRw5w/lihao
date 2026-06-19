@@ -1,0 +1,30 @@
+kNN filter keeps 83401/103218 (80.80%)
+denoise[ot] keeps 85382/92933 (91.87%)
+targets ready: 92933 usable samples (188 consensus pseudo-labelled, 7551 CL-relabelled)
+train images 92933  val images 10285
+trainable params: 5.10M
+D:\02_Projects\ML\jinyinsai\finetune_lora.py:461: UserWarning: Detected call of `lr_scheduler.step()` before `optimizer.step()`. In PyTorch 1.1.0 and later, you should call them in the opposite order: `optimizer.step()` before `lr_scheduler.step()`.  Failure to do this will result in PyTorch skipping the first value of the learning rate schedule. See more details at https://pytorch.org/docs/stable/optim.html#how-to-adjust-learning-rate
+  sched.step()
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+D:\04_Tools\Python\Lib\site-packages\PIL\TiffImagePlugin.py:949: UserWarning: Corrupt EXIF data.  Expecting to read 4 bytes but only got 2. 
+  warnings.warn(str(msg))
+epoch 01/6 loss=1.9709 time=911s  noisy_all=0.7088  low_lt03=0.3986  mid_03_06=0.8567  high_ge06=0.9936  *best*
+D:\04_Tools\Python\Lib\site-packages\PIL\TiffImagePlugin.py:949: UserWarning: Corrupt EXIF data.  Expecting to read 4 bytes but only got 2. 
+  warnings.warn(str(msg))
+epoch 02/6 loss=1.7380 time=900s  noisy_all=0.7416  low_lt03=0.458  mid_03_06=0.8859  high_ge06=0.9946  *best*
+epoch 03/6 loss=1.5593 time=847s  noisy_all=0.7574  low_lt03=0.4865  mid_03_06=0.9001  high_ge06=0.9952  *best*  [snap]
+epoch 04/6 loss=1.4047 time=853s  noisy_all=0.7668  low_lt03=0.5107  mid_03_06=0.8986  high_ge06=0.9942
+epoch 05/6 loss=1.2717 time=888s  noisy_all=0.7711  low_lt03=0.5209  mid_03_06=0.8994  high_ge06=0.9936
+epoch 06/6 loss=1.2012 time=853s  noisy_all=0.7726  low_lt03=0.5227  mid_03_06=0.9024  high_ge06=0.9933  *best*  [snap]
+done
+loaded outputs_ortho_ot\lora\full.pt (epoch 6), img_size=448, scales=[448, 512, 576] x flip
+  scale 448 done
+  scale 512 done
+  scale 576 done
+tta          dist: min=4 max=253 std=22.6
+tta_balanced       dist: min=46 max=54 std=1.4  (changed 4408)
+saved submissions\pred_results_ortho_ot_tta.csv and submissions\pred_results_ortho_ot_tta.zip
+saved submissions\pred_results_ortho_ot_tta_balanced.csv and submissions\pred_results_ortho_ot_tta_balanced.zip
