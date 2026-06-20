@@ -24,25 +24,29 @@ def main():
     p.add_argument("--out", required=True)
     args = p.parse_args()
 
-    states = [torch.load(c, map_location="cpu") for c in args.checkpoints]
-    base = states[0]
+    # stream-accumulate one checkpoint at a time (RAM-safe for many large ckpts).
+    base = torch.load(args.checkpoints[0], map_location="cpu")
     keys = list(base["model"].keys())
-    assert all(set(s["model"].keys()) == set(keys) for s in states), "arch mismatch across checkpoints"
-
-    avg = {}
-    for k in keys:
-        tensors = [s["model"][k] for s in states]
-        if tensors[0].is_floating_point():
-            avg[k] = (sum(t.float() for t in tensors) / len(tensors)).to(tensors[0].dtype)
-        else:
-            avg[k] = tensors[0]  # integer buffers: keep first
+    acc = {k: base["model"][k].float().clone() if base["model"][k].is_floating_point() else base["model"][k]
+           for k in keys}
+    n = 1
+    for c in args.checkpoints[1:]:
+        s = torch.load(c, map_location="cpu")
+        assert set(s["model"].keys()) == set(keys), "arch mismatch across checkpoints"
+        for k in keys:
+            if acc[k].is_floating_point():
+                acc[k] += s["model"][k].float()
+        n += 1
+        del s
+    avg = {k: (acc[k] / n).to(base["model"][k].dtype) if acc[k].is_floating_point() else acc[k]
+           for k in keys}
     base["model"] = avg
     base["epoch"] = "swa"
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     torch.save(base, out)
-    print(f"souped {len(states)} checkpoints -> {out}")
+    print(f"souped {n} checkpoints -> {out}")
     print("  sources:", ", ".join(Path(c).name for c in args.checkpoints))
 
 
