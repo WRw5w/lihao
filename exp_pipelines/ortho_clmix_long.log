@@ -1,0 +1,23 @@
+kNN filter keeps 83401/103218 (80.80%)
+denoise[cleanlab] keeps 85352/92933 (91.84%)
+targets ready: 85538 usable samples (186 consensus pseudo-labelled, 0 CL-relabelled)
+train images 85538  val images 10285
+trainable params: 5.10M
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+D:\04_Tools\Python\Lib\site-packages\PIL\Image.py:1034: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
+  warnings.warn(
+epoch 01/12 loss=2.6382 time=751s  noisy_all=0.7011  low_lt03=0.3881  mid_03_06=0.8459  high_ge06=0.9921  *best*
+epoch 02/12 loss=2.4480 time=721s  noisy_all=0.7385  low_lt03=0.4529  mid_03_06=0.8803  high_ge06=0.9961  *best*
+epoch 03/12 loss=2.3041 time=725s  noisy_all=0.7568  low_lt03=0.4903  mid_03_06=0.8915  high_ge06=0.9955  *best*
+epoch 04/12 loss=2.2354 time=737s  noisy_all=0.7684  low_lt03=0.5111  mid_03_06=0.902  high_ge06=0.9958  *best*
+epoch 05/12 loss=2.1335 time=726s  noisy_all=0.7746  low_lt03=0.5265  mid_03_06=0.9016  high_ge06=0.9955
+epoch 06/12 loss=2.0225 time=730s  noisy_all=0.7821  low_lt03=0.5376  mid_03_06=0.9132  high_ge06=0.9949  *best*
+epoch 07/12 loss=1.9706 time=737s  noisy_all=0.7872  low_lt03=0.5485  mid_03_06=0.9147  high_ge06=0.9952  *best*
+epoch 08/12 loss=1.8742 time=846s  noisy_all=0.7913  low_lt03=0.5548  mid_03_06=0.9196  high_ge06=0.9961  *best*
+epoch 09/12 loss=1.7968 time=827s  noisy_all=0.7927  low_lt03=0.5587  mid_03_06=0.9181  high_ge06=0.9964
+epoch 10/12 loss=1.7660 time=859s  noisy_all=0.7945  low_lt03=0.5622  mid_03_06=0.9196  high_ge06=0.9961
+epoch 11/12 loss=1.7210 time=939s  noisy_all=0.7944  low_lt03=0.5631  mid_03_06=0.9184  high_ge06=0.9955
+epoch 12/12 loss=1.7146 time=937s  noisy_all=0.7949  low_lt03=0.5655  mid_03_06=0.9169  high_ge06=0.9955
+early stopping after 4 stale epochs
+done
