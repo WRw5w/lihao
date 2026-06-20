@@ -9,22 +9,22 @@ export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
 PY=/d/04_Tools/Python/python.exe
 MASTER=exp_pipelines/ortho_v10.log; : > "$MASTER"
 
-echo "[clmix_xl] TRAIN 18ep save-every1 (cleanlab+mixup0.2)" | tee -a "$MASTER"
+echo "[clmix_xl] TRAIN 16ep save-every1 (cleanlab+mixup0.2, num-workers 0 防RAM共享映射崩)" | tee -a "$MASTER"
 $PY -u finetune_lora.py --work-dir outputs_ortho_clmix_xl --cache-dir outputs/cache \
-  --img-size 448 --epochs 18 --batch-size 32 --lora-rank 32 --lora-alpha 64 \
+  --img-size 448 --epochs 16 --batch-size 32 --lora-rank 32 --lora-alpha 64 \
   --lora-target attn_mlp --lora-blocks 12 --keep-ratio 0.90 --ema-decay 0.999 --randaug \
-  --pseudo-thresh 0.6 --pseudo-margin 0.05 --label-smoothing 0.1 --num-workers 2 --no-pin \
+  --pseudo-thresh 0.6 --pseudo-margin 0.05 --label-smoothing 0.1 --num-workers 0 --no-pin \
   --denoise cleanlab --mixup-alpha 0.2 --save-every 1 > exp_pipelines/ortho_clmix_xl.log 2>&1
 echo "[clmix_xl] best $(grep -aoE 'mid_03_06=[0-9.]+' exp_pipelines/ortho_clmix_xl.log|sort -t= -k2 -rn|head -1)" | tee -a "$MASTER"
-ls outputs_ortho_clmix_xl/lora/ep18.pt >/dev/null 2>&1 || { echo "[clmix_xl] incomplete"; tail -8 exp_pipelines/ortho_clmix_xl.log | tee -a "$MASTER"; exit 1; }
+ls outputs_ortho_clmix_xl/lora/ep16.pt >/dev/null 2>&1 || { echo "[clmix_xl] incomplete"; tail -8 exp_pipelines/ortho_clmix_xl.log | tee -a "$MASTER"; exit 1; }
 
-echo "[clmixsoup3] === long-trajectory SWA (ep08-18, 11pts, streamed) ===" | tee -a "$MASTER"
+echo "[clmixsoup3] === long-trajectory SWA (ep07-16, 10pts, streamed) ===" | tee -a "$MASTER"
 CK=""
-for e in 08 09 10 11 12 13 14 15 16 17 18; do CK="$CK outputs_ortho_clmix_xl/lora/ep${e}.pt"; done
+for e in 07 08 09 10 11 12 13 14 15 16; do CK="$CK outputs_ortho_clmix_xl/lora/ep${e}.pt"; done
 $PY tools/swa_soup.py --out outputs_ortho_clmixsoup3/lora/full.pt --checkpoints $CK >> "$MASTER" 2>&1
 $PY -u tools/tta_predict.py --work-dir outputs_ortho_clmixsoup3 \
   --out-prefix submissions/pred_results_ortho_clmixsoup3 --scales 448,512,576 \
-  --balance-strength 1.0 --batch-size 64 --num-workers 2 --no-pin >> "$MASTER" 2>&1
+  --balance-strength 1.0 --batch-size 64 --num-workers 0 --no-pin >> "$MASTER" 2>&1
 $PY check_submission.py --csv submissions/pred_results_ortho_clmixsoup3_tta_balanced.csv \
   --zip submissions/pred_results_ortho_clmixsoup3_tta_balanced.zip 2>&1 | grep -aE 'RESULT|ERROR' | tee -a "$MASTER"
 cp -f submissions/pred_results_ortho_clmixsoup3_tta_balanced.zip \
