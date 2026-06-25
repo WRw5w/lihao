@@ -1,0 +1,11 @@
+# Only the experiment code/scripts/docs go to git. Data, caches, weights, logs stay local.
+cache/
+data/
+data_zips/
+hf_cache/
+runs/
+__pycache__/
+*.log
+*.pt
+*.pth
+*.zip

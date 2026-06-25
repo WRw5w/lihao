@@ -1,0 +1,18 @@
+# Comparison arms for the pos-embed resampling study.
+# Factorial: resolution (grid) x resample method. Recipe is otherwise IDENTICAL
+# across arms (the frozen winning recipe in env.sh COMMON).
+#
+#   grid = img_size / 32  (CLIP ViT-B/32). 7x7 is the pretrained native grid.
+#   'aligned' = bilinear + align_corners=True -> on an ODD grid N=2k-1 the original
+#               49 anchors land EXACTLY on output nodes (lossless). 13 (=2*7-1)@416
+#               and 19 (=3*7-1)@608 are the clean cases; 14@448 is even (no exact preserve).
+#   scales = TTA resize scales (must be >= img_size; mirror of the 448/512/576 pattern).
+#   bs     = batch size; tune to your GPU VRAM. 416(169 tok) is CHEAPER than 448(196 tok).
+#
+# name           img   pos      bs   scales          tier
+b224_native      224   timm     64   224,256,288     core
+b448_default     448   timm     32   448,512,576     core
+r416_default     416   timm     32   416,448,480     core
+r416_aligned     416   aligned  32   416,448,480     core
+b448_aligned     448   aligned  32   448,512,576     stretch
+r608_aligned     608   aligned  16   608,672,736     stretch
