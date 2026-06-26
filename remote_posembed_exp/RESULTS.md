@@ -3,56 +3,63 @@
 Submitted to aicomp (team **swpu_1**, AIC-2026-58579595) on **2026-06-25/26**,
 TTA-balanced prediction zips. Recipe is **identical across arms** (frozen winning recipe
 in `env.sh` COMMON: cleanlab denoise + mixup0.2 + EMA + RandAug + rank32 attn_mlp +
-pseudo-label, 12ep, same-trajectory SWA ep4–12); the only variables are **input
-resolution** and **pos-embed resample method**. Grid = img_size / 32 (CLIP ViT-B/32;
-native pretrained grid is 7×7 @224).
+pseudo-label, 12ep, same-trajectory SWA ep4–12, seed 42); the only variables are **input
+resolution** and **pos-embed resample method**. Grid = img_size / 32 (CLIP ViT-B/32; native
+pretrained grid is 7×7 @224). `aligned` = bilinear + `align_corners=True`; `default` = timm's
+default pos-embed interpolation.
 
-| arm | img | grid | resample | LB score | Δ vs 448 |
-|---|---|---|---|---|---|
-| **b448_default** | 448 | 14×14 (even) | timm default | **78.7359** 🏆 | — |
-| r608_aligned | 608 | 19×19 (odd, lossless) | aligned (align_corners) | 78.6438 | −0.0921 |
-| r416_aligned | 416 | 13×13 (odd, lossless) | aligned (align_corners) | 78.1071 | −0.6288 |
-| r416_default | 416 | 13×13 (odd) | timm default | 78.0711 | −0.6648 |
-| b224_native | 224 | 7×7 (native) | timm default | 73.2847 | −5.4512 |
+| resolution | grid | parity | default | aligned |
+|---|---|---|---|---|
+| 224 | 7×7 (native) | — | 73.2847 | — |
+| 416 | 13×13 | odd | 78.0711 | 78.1071 |
+| 448 | 14×14 | even | 78.7359 | 78.8561 |
+| 480 | 15×15 | odd | — | 78.7439 |
+| **512** | 16×16 | even | — | **78.9122** 🏆 |
+| 608 | 19×19 | odd | — | 78.6438 |
+
+**Champion: b512_aligned = 78.9122** (prior best in the whole project was clmixsoup5 = 78.6318;
+this study added +0.28 purely from resolution=512 + aligned pos-embed, same recipe otherwise).
 
 ## Conclusions
 
-1. **Resolution is an inverted-U, peaking at 448 — NOT monotonic.**
-   224 (73.28) → 416 (78.07–78.11) → **448 (78.74, peak)** → 608 (78.64, −0.09). Going up
-   helps a lot until 448, then 608 gives it back. (An earlier draft, before the 608 point
-   existed, wrongly called this monotonic.)
+1. **`aligned` (align_corners=True) universally beats timm default.** +0.0360 at 416,
+   +0.1202 at 448. The benefit is NOT limited to odd grids — see point 3.
 
-2. **Pos-embed extrapolation distance — not interpolation cleanliness — is the binding
-   constraint.** 608 has BOTH theoretical advantages over 448 (higher resolution AND a clean
-   odd 19×19 grid where `align_corners` preserves all 49 native anchors exactly) yet still
-   loses. The native grid is 7×7; 448 is 2.0× native, 608 is 2.7×. Stretching the learned
-   positional relationships to 2.7× distorts the backbone's spatial priors enough to outweigh
-   the extra resolution. 448's "imperfect" even-grid interpolation wins anyway. **Takeaway:
-   how far you extrapolate from the 7×7 pretrain grid matters more than whether the
-   interpolation is lossless.**
+2. **Resolution is a broad plateau over 448–512, not a sharp peak.** Rises steeply
+   224→416→448 (73.28 → 78.1 → 78.86), then 448/480/512 sit in a tight 78.74–78.91 band
+   (best at **512**), then falls at 608 (78.64). An earlier draft called the peak 448 — that
+   was premature (only 448 vs 608 existed then); 512 then beat 448 by +0.056.
 
-3. **Aligned (lossless) interpolation helps only marginally, and cannot rescue an
-   off-sweet-spot resolution.** At 416 it bought +0.0360 (78.1071 vs 78.0711, odd grid);
-   at 608 the lossless 19×19 grid was not enough to reach 448.
+3. **The original "odd-grid exact-anchor-preservation wins" hypothesis is contradicted by
+   the data.** arms.tsv bet that odd grids (13@416, 19@608) — where align_corners lands the
+   49 native anchors exactly on output nodes — would be the clean winners. Empirically those
+   two odd "clean" grids are the LOWER points, and the even grids (14@448, 16@512) are the
+   winners. So exact interpolation alignment is second-order; what actually matters is
+   (a) enough resolution and (b) not extrapolating the 7×7 pretrain grid too far (608 = 2.7×
+   is past the plateau). Parity pattern observed: even {448, 512} > odd {480, 608}, but this
+   is at the edge of the noise band — do not over-read it.
 
-4. **b448_default also set a new overall best (78.7359)**, edging the prior champion
-   clmixsoup5 = 78.6318 (+0.10) — same recipe family, so within the noise/recipe-window band,
-   not a free lunch. r608_aligned (78.6438) likewise essentially ties that prior champion.
+4. **Single-run noise is ~±0.1**, so the 480 dip (78.7439, below both 448 and 512) and the
+   +0.056 of 512-over-448 should be read as "448–512 is a plateau," not a precise ranking.
+   The robust, noise-resistant claims are: 224 ≪ 416 ≪ {448…512 plateau} > 608, and aligned > default.
 
-5. **Operating point: 448. Do not increase resolution further.**
+5. **Operating point: 512 (aligned), 78.9122.** 448 (aligned) is an essentially-equal,
+   cheaper fallback (bs32 vs bs24, faster).
 
-## Untested / possible next
+## Untested / possible next (diminishing returns — differences now within noise)
 
-- `b448_aligned` (448, even 14×14 grid). Aligned has no exact-preserve advantage on an even
-  grid, but at 416 it still beat default by +0.036; if a similar micro-gain appears at the
-  peak resolution it could edge above 78.7359. Cheapest remaining shot at a new best.
-- `r608_default` would isolate how much of 608's gap is resample vs resolution, but given the
-  448 peak it is low-value.
+- `b544_aligned` (17×17 odd) / `b576_aligned` (18×18 even) would test whether the peak is
+  really at 512 or slightly higher, but at ±0.1 noise this is noise-chasing.
+- `b480_aligned` re-run with a different seed would tell whether the 480 dip is real or noise.
+- `b512_default` would isolate how much of 512's win is resolution vs the aligned resample.
 
 ## Operational notes (for re-runs)
 
-- **TTA step must force HF offline** (`HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1`, weights are
-  already cached from training): the 608 run's first TTA attempt crashed in `build_lora_model`
-  on a transient HuggingFace Hub call (`RuntimeError: Cannot send a request, as the client has
-  been closed`). Training + SWA were fine; only TTA reloads the backbone and hit the network.
-  Re-running TTA-only offline produced the zip in ~6.5 min (no retrain).
+- **TTA must force HF offline** (`HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1`; weights are cached
+  from training). The first r608 TTA crashed in `build_lora_model` on a transient HuggingFace
+  Hub call. Baking offline into the launcher fixed it for b448/480/512.
+- **Submission infra**: the打榜 Chrome tabs freeze after long idle → CDP `Runtime.enable`
+  times out. Fix = close + recreate the submit/leaderboard tabs (HTTP `/json/close`, `/json/new`)
+  and probe with `aicomp_cdp.mjs heartbeat` before letting the runner submit. If the runner is
+  killed at session teardown before its scheduled capture, the score is still on the platform —
+  re-read the leaderboard manually and backfill.
