@@ -87,6 +87,59 @@ def fit_gmm_1d(x: torch.Tensor, iters: int = 50) -> torch.Tensor:
 
 
 @torch.inference_mode()
+def gmm_divide_select(
+    losses: torch.Tensor,
+    confs: torch.Tensor,
+    preds: torch.Tensor,
+    labels: torch.Tensor,
+    *,
+    clean_thresh: float = 0.5,
+    conf_gate: float = 0.95,
+    clean_weight: torch.Tensor | float = 1.0,
+    noisy_weight: float = 0.5,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """DivideMix-style per-epoch clean/noisy re-selection from the *training
+    model's* per-sample loss (not the static frozen-feature teacher).
+
+    Mechanism (Li et al., 2020, "DivideMix"): early-learning makes correctly
+    labelled samples have systematically lower loss than mislabelled ones; a
+    2-component GMM on the loss separates them, and the split is recomputed each
+    epoch so the clean set tracks the improving model (self-cleaning loop). This
+    is what distinguishes it from a one-shot static relabel (which introduced
+    noise here, see clrelabel 74.88): noisy samples are treated as *unlabelled*
+    and only rejoin via a high-confidence pseudo-label gate, never as a hard
+    wrong label.
+
+    Args:
+      losses   (N,) per-sample CE loss vs the ORIGINAL label, from the EMA model.
+      confs    (N,) model max softmax prob.
+      preds    (N,) model argmax class.
+      labels   (N,) original (noisy) labels.
+      clean_thresh  GMM clean-posterior >= this -> treated as clean.
+      conf_gate     a noisy sample rejoins as pseudo-labelled only if conf >= this.
+      clean_weight  per-sample (or scalar) loss weight for clean samples.
+      noisy_weight  loss weight for confidently pseudo-labelled noisy samples.
+
+    Returns (target_labels, weights, w_clean):
+      clean:                 target=original label, weight=clean_weight.
+      noisy & conf>=gate:    target=model pred,     weight=noisy_weight (unlabelled).
+      noisy & conf<gate:     weight 0 (dropped this epoch; re-decided next epoch).
+    """
+    w_clean = fit_gmm_1d(losses)
+    clean = w_clean >= clean_thresh
+    target = labels.clone()
+    weights = torch.zeros_like(losses, dtype=torch.float32)
+    if isinstance(clean_weight, torch.Tensor):
+        weights[clean] = clean_weight[clean].to(weights.dtype)
+    else:
+        weights[clean] = float(clean_weight)
+    noisy_conf = (~clean) & (confs >= conf_gate)
+    target[noisy_conf] = preds[noisy_conf]
+    weights[noisy_conf] = float(noisy_weight)
+    return target, weights, w_clean
+
+
+@torch.inference_mode()
 def confident_learning_keep(
     probs: torch.Tensor,
     labels: torch.Tensor,

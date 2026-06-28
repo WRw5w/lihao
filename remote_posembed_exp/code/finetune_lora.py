@@ -42,6 +42,7 @@ from robustft.data import IndexedImageDataset, build_finetune_transforms
 from robustft.denoise import (
     confident_learning_keep,
     fit_gmm_1d,
+    gmm_divide_select,
     knn_agreement,
     knn_majority_prediction,
     label_propagation,
@@ -265,6 +266,9 @@ def evaluate_images(model, loader, labels_gpu, agree_gpu, device, trusted_mask=N
 
 def train(args) -> None:
     device = torch.device("cuda")
+    if args.dynamic_divide:
+        assert not args.ssl_recover, "--dynamic-divide and --ssl-recover are mutually exclusive"
+        assert args.ema_decay > 0, "--dynamic-divide needs --ema-decay>0 (re-scores with the EMA model)"
     ckpt_dir = Path(args.work_dir) / "lora"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
@@ -309,6 +313,11 @@ def train(args) -> None:
         recover_pool = tr_idx[~usable].clone()
         print(f"train images {tr_idx.numel()} (usable {int(usable.sum())} + "
               f"ssl-recoverable {recover_pool.numel()})  val images {va_idx.numel()}")
+    elif args.dynamic_divide:
+        # keep the FULL training partition in the loader; the clean/noisy split is
+        # re-decided each epoch by the GMM divide (weights below are overwritten).
+        print(f"train images {tr_idx.numel()} (dynamic-divide: full partition, re-split each "
+              f"epoch after {args.divide_warmup}ep static-clean warmup)  val images {va_idx.numel()}")
     else:
         tr_idx = tr_idx[usable]
         print(f"train images {tr_idx.numel()}  val images {va_idx.numel()}")
@@ -343,6 +352,13 @@ def train(args) -> None:
         recover_loader = DataLoader(recover_ds, batch_size=args.batch_size * 2, shuffle=False,
                                     num_workers=0, pin_memory=pin)
         recover_pool_gpu = recover_pool.to(device)
+    divide_loader = None
+    if args.dynamic_divide:
+        # weak-aug (eval_tf) view of the WHOLE training partition; re-scored each epoch
+        # to recompute the GMM clean/noisy split (order == tr_idx order).
+        divide_ds = IndexedImageDataset([paths[i] for i in tr_idx.tolist()], eval_tf)
+        divide_loader = DataLoader(divide_ds, batch_size=args.batch_size * 2, shuffle=False,
+                                   num_workers=args.num_workers, pin_memory=pin)
     val_loader = None
     if va_idx.numel():
         val_ds = IndexedImageDataset([paths[i] for i in va_idx.tolist()], eval_tf)
@@ -436,6 +452,40 @@ def train(args) -> None:
             model.train()
             print(f"  ssl-recover@ep{epoch}: {n_rec}/{recover_pool.numel()} dropped pseudo-labelled "
                   f"(thr={args.ssl_thresh}, w={args.ssl_weight})", flush=True)
+        if divide_loader is not None and epoch >= args.divide_warmup and (epoch - args.divide_warmup) % args.divide_every == 0:
+            # DivideMix self-cleaning: re-split the WHOLE partition from the EMA model's
+            # per-sample loss. clean -> own label (w=1); noisy & confident -> pseudo-label
+            # (w=divide_noisy_weight, treated as unlabelled); noisy & unsure -> dropped this
+            # epoch. Re-decided every refresh so the clean set tracks the improving model.
+            div_model = ema_model if ema_model is not None else model
+            div_model.eval()
+            n = tr_idx_gpu.numel()
+            d_loss = torch.empty(n, device=device)
+            d_conf = torch.empty(n, device=device)
+            d_pred = torch.empty(n, dtype=torch.long, device=device)
+            with torch.no_grad():
+                for dimages, didx in divide_loader:
+                    dimages = dimages.to(device, non_blocking=True)
+                    didx = didx.to(device)
+                    with torch.autocast("cuda", dtype=torch.float16):
+                        dl = div_model(dimages).float()
+                    gy = labels_all[tr_idx_gpu[didx]]
+                    d_loss[didx] = F.cross_entropy(dl, gy, reduction="none")
+                    dp = dl.softmax(1).max(1)
+                    d_conf[didx] = dp.values
+                    d_pred[didx] = dp.indices
+            orig_tr = labels_all[tr_idx_gpu]
+            new_t, new_w, w_clean = gmm_divide_select(
+                d_loss, d_conf, d_pred, orig_tr,
+                clean_thresh=args.divide_thresh, conf_gate=args.divide_conf_gate,
+                clean_weight=1.0, noisy_weight=args.divide_noisy_weight)
+            target_labels_all[tr_idx_gpu] = new_t
+            weights_all[tr_idx_gpu] = new_w
+            n_clean = int((w_clean >= args.divide_thresh).sum())
+            n_pseudo = int(((new_w > 0) & (new_t != orig_tr)).sum())
+            model.train()
+            print(f"  divide@ep{epoch}: clean={n_clean}/{n} ({n_clean / n:.1%})  "
+                  f"pseudo-relabelled noisy={n_pseudo}  dropped={int((new_w == 0).sum())}", flush=True)
         for images, idx in train_loader:
             images = images.to(device, non_blocking=True)
             gidx = tr_idx_gpu[idx.to(device)]
@@ -636,6 +686,23 @@ def parse_args():
     p.add_argument("--ssl-warmup", type=int, default=2,
                    help="epochs of clean-only training before recovery starts (exploit early-learning)")
     p.add_argument("--ssl-every", type=int, default=1, help="refresh recovered pseudo-labels every K epochs")
+    p.add_argument("--dynamic-divide", action="store_true",
+                   help="DivideMix self-cleaning: each epoch re-split the WHOLE training partition into "
+                        "clean/noisy with a GMM on the (EMA) training model's per-sample loss (not the "
+                        "static frozen-feature teacher). Clean -> own label; noisy -> treated as unlabelled, "
+                        "rejoining only via a high-confidence pseudo-label gate. Requires --ema-decay>0. "
+                        "Mutually exclusive with --ssl-recover.")
+    p.add_argument("--divide-warmup", type=int, default=2,
+                   help="epochs trained on the static clean set before dynamic re-splitting starts "
+                        "(exploit early-learning before trusting the model's own loss)")
+    p.add_argument("--divide-every", type=int, default=1, help="re-run the GMM divide every K epochs")
+    p.add_argument("--divide-thresh", type=float, default=0.5,
+                   help="GMM clean-posterior threshold; >= -> clean")
+    p.add_argument("--divide-conf-gate", type=float, default=0.95,
+                   help="a noisy sample rejoins (as a pseudo-labelled unlabelled sample) only if its "
+                        "model confidence >= this gate")
+    p.add_argument("--divide-noisy-weight", type=float, default=0.5,
+                   help="loss weight for confidently pseudo-labelled noisy samples (vs 1.0 for clean)")
     p.add_argument("--class-balance", action="store_true", help="scale sample weights by inverse class frequency")
     p.add_argument("--cb-power", type=float, default=0.5, help="class-balance exponent (0=off..1=full inverse-freq)")
     p.add_argument("--cutmix", type=float, default=0.0, help="CutMix Beta(a,a) strength (0=off; mutually exclusive w/ mixup)")
