@@ -266,9 +266,6 @@ def evaluate_images(model, loader, labels_gpu, agree_gpu, device, trusted_mask=N
 
 def train(args) -> None:
     device = torch.device("cuda")
-    if args.dynamic_divide:
-        assert not args.ssl_recover, "--dynamic-divide and --ssl-recover are mutually exclusive"
-        assert args.ema_decay > 0, "--dynamic-divide needs --ema-decay>0 (re-scores with the EMA model)"
     ckpt_dir = Path(args.work_dir) / "lora"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
@@ -783,6 +780,16 @@ def parse_args():
     p.add_argument("--smoke", action="store_true")
     p.add_argument("--predict", action="store_true")
     args = p.parse_args()
+    # validate periodic-refresh divisors (used as modulo divisors in the epoch loop)
+    if args.ssl_every <= 0:
+        p.error("--ssl-every must be > 0")
+    if args.divide_every <= 0:
+        p.error("--divide-every must be > 0")
+    if args.dynamic_divide:
+        if args.ssl_recover:
+            p.error("--dynamic-divide and --ssl-recover are mutually exclusive")
+        if args.ema_decay <= 0:
+            p.error("--dynamic-divide requires --ema-decay > 0 (re-scores with the EMA model)")
     if args.cache_dir is None:
         args.cache_dir = str(Path(args.work_dir) / "cache")
     return args
