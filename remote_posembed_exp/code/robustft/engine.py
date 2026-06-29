@@ -72,6 +72,19 @@ def soft_ce(logits: torch.Tensor, target_probs: torch.Tensor, sample_w: torch.Te
     return loss.mean()
 
 
+def elr_regularizer(probs: torch.Tensor, target: torch.Tensor, lam: float) -> torch.Tensor:
+    """Early-Learning Regularization anchor term (Liu et al., 2020).
+
+    L_ELR = lam * mean_i( log(1 - <p_i, t_i>) ), added to the (cross-entropy) loss.
+    `probs` is the current softmax prediction (carries grad); `target` is the
+    per-sample running EMA target (detached). Minimising the term drives
+    <p_i, t_i> -> 1, i.e. keeps predictions aligned with the early-learning target
+    and resists later memorisation of noisy labels. Returns a scalar.
+    """
+    inner = (probs * target).sum(dim=1)
+    return lam * torch.log((1.0 - inner).clamp_min(1e-4)).mean()
+
+
 def smooth_one_hot(labels: torch.Tensor, num_classes: int, smoothing: float) -> torch.Tensor:
     t = torch.full((labels.size(0), num_classes), smoothing / (num_classes - 1), device=labels.device)
     t.scatter_(1, labels[:, None], 1.0 - smoothing)

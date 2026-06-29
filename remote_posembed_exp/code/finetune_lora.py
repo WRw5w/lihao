@@ -50,6 +50,7 @@ from robustft.denoise import (
     sinkhorn_balance,
 )
 from robustft.engine import (
+    elr_regularizer,
     seed_everything,
     stratified_split,
     stratified_three_way_split,
@@ -414,6 +415,8 @@ def train(args) -> None:
     history = []
     best_mid = -1.0
     stale_epochs = 0
+    # ELR per-sample running target (EMA of softmax predictions), indexed by global idx
+    elr_target = torch.zeros(labels_all.numel(), num_classes, device=device) if args.elr else None
     for epoch in range(start_epoch, args.epochs + 1):
         model.train()
         t0 = time.time()
@@ -485,6 +488,7 @@ def train(args) -> None:
                   f"pseudo-relabelled noisy={n_pseudo}  dropped={int((new_w == 0).sum())}", flush=True)
         for images, idx in train_loader:
             images = images.to(device, non_blocking=True)
+            clean_images = images.clone() if args.elr else None  # pre-mixup view for ELR
             gidx = tr_idx_gpu[idx.to(device)]
             tb = target_labels_all[gidx]
             wb = weights_all[gidx]
@@ -512,6 +516,14 @@ def train(args) -> None:
                 images[:, :, y1:y2, x1:x2] = images[perm][:, :, y1:y2, x1:x2]
                 lam = 1.0 - ((y2 - y1) * (x2 - x1) / (H * W))
             with torch.autocast("cuda", dtype=torch.float16):
+                elr_reg = 0.0
+                if args.elr:
+                    # clean (pre-mixup) forward -> running EMA target -> anchor term.
+                    p_clean = model(clean_images).float().softmax(1)
+                    with torch.no_grad():
+                        cur = args.elr_beta * elr_target[gidx] + (1.0 - args.elr_beta) * p_clean
+                        elr_target[gidx] = cur / cur.sum(1, keepdim=True).clamp_min(1e-8)
+                    elr_reg = elr_regularizer(p_clean, elr_target[gidx], args.elr_lambda)
                 if args.manifold_mixup > 0:
                     # Manifold Mixup (Verma 2019): mix the *feature* representation
                     # instead of the input -> flatter, noise-robust feature manifold.
@@ -537,7 +549,7 @@ def train(args) -> None:
                             ce_orig = F.cross_entropy(
                                 logits, labels_all[gidx], reduction="none", label_smoothing=args.label_smoothing)
                             loss_vec = (1.0 - ab) * loss_vec + ab * ce_orig
-                loss = (loss_vec * wb).sum() / wb.sum().clamp_min(1e-6)
+                loss = (loss_vec * wb).sum() / wb.sum().clamp_min(1e-6) + elr_reg
             scaler.scale(loss).backward()
             scaler.unscale_(opt)
             torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
@@ -700,6 +712,13 @@ def parse_args():
                         "model confidence >= this gate")
     p.add_argument("--divide-noisy-weight", type=float, default=0.5,
                    help="loss weight for confidently pseudo-labelled noisy samples (vs 1.0 for clean)")
+    p.add_argument("--elr", action="store_true",
+                   help="Early-Learning Regularization (Liu 2020): keep ALL data; add a term that anchors "
+                        "each sample's prediction to its running EMA target (captured before the net memorises "
+                        "noise). Single extra loss term, composes with mixup/cleanlab. Uses one extra clean "
+                        "(pre-mixup) forward per step.")
+    p.add_argument("--elr-lambda", type=float, default=3.0, help="ELR regularization weight (paper default 3)")
+    p.add_argument("--elr-beta", type=float, default=0.7, help="ELR target EMA momentum (paper default 0.7)")
     p.add_argument("--class-balance", action="store_true", help="scale sample weights by inverse class frequency")
     p.add_argument("--cb-power", type=float, default=0.5, help="class-balance exponent (0=off..1=full inverse-freq)")
     p.add_argument("--cutmix", type=float, default=0.0, help="CutMix Beta(a,a) strength (0=off; mutually exclusive w/ mixup)")
